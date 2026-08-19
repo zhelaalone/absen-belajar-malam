@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi Guru Belajar Malam</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <section id="login-section" class="screen active">
+        <div class="login-card">
+            <div class="logo-area">
+                <span class="logo-icon">📚</span>
+                <h2>EduAbsen</h2>
+            </div>
+            <h3>Selamat Datang</h3>
+            <p>Sistem Absensi Belajar Malam</p>
+            <form id="login-form">
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="email" required placeholder="email@contoh.com">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input type="password" id="password" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn-primary">Masuk ke Sistem</button>
+                <div id="login-error" class="error-msg"></div>
+            </form>
+        </div>
+    </section>
+
+    <!-- MAIN APP LAYOUT -->
+    <section id="app-section" class="screen hidden">
+        <nav class="navbar">
+            <div class="logo-area">
+                <span class="logo-icon">📚</span>
+                <span class="logo-text">EduAbsen</span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#" onclick="navigate('dashboard')">Dashboard</a></li>
+                <li><a href="#" onclick="navigate('scan')">Scan Barcode</a></li>
+                <li class="admin-only hidden"><a href="#" onclick="navigate('guru')">Data Guru</a></li>
+                <li class="admin-only hidden"><a href="#" onclick="navigate('zona')">Manajemen Zona</a></li>
+                <li class="admin-only hidden"><a href="#" onclick="navigate('rekap')">Rekap</a></li>
+            </ul>
+            <div class="user-profile">
+                <span id="user-name-display">Nama Guru</span>
+                <button class="btn-outline" onclick="logout()">Logout</button>
+            </div>
+        </nav>
+
+        <main class="container">
+            <!-- DASHBOARD -->
+            <div id="page-dashboard" class="page active">
+                <div class="hero-header">
+                    <div>
+                        <h1>Halo, <span id="welcome-name">Guru</span>! 👋</h1>
+                        <p>Ringkasan kehadiran kegiatan belajar malam hari ini.</p>
+                    </div>
+                    <div class="real-time-clock">
+                        <h2 id="current-time">00:00:00 WIB</h2>
+                        <p id="current-date">Tanggal</p>
+                    </div>
+                </div>
+
+                <!-- Admin Stats -->
+                <div class="stats-grid admin-only hidden">
+                    <div class="stat-card"><div class="stat-title">Total Guru</div><div class="stat-value" id="stat-total">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Sudah Hadir</div><div class="stat-value text-primary" id="stat-hadir">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Belum Hadir</div><div class="stat-value text-muted" id="stat-belum">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Tepat Waktu</div><div class="stat-value text-success" id="stat-tepat">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Terlambat</div><div class="stat-value text-danger" id="stat-terlambat">0</div></div>
+                </div>
+
+                <div class="content-section">
+                    <div class="section-header">
+                        <h3>Kehadiran Terbaru</h3>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="recent-attendance-table">
+                            <thead>
+                                <tr><th>Nama</th><th>Zona</th><th>Waktu</th><th>Status</th></tr>
+                            </thead>
+                            <tbody id="recent-attendance-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCAN BARCODE -->
+            <div id="page-scan" class="page hidden">
+                <div class="scan-container">
+                    <div class="scan-card">
+                        <div class="scan-header">
+                            <h2>Scan Barcode Zona</h2>
+                            <p>Arahkan kamera ke QR Code yang terdapat di zona absensi Anda.</p>
+                        </div>
+                        <div id="reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
+                        <button id="btn-start-scan" class="btn-primary" onclick="startScanner()">Mulai Scan</button>
+                        <div id="scan-result" class="scan-result hidden"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DATA GURU -->
+            <div id="page-guru" class="page hidden admin-only">
+                <div class="section-header flex-between">
+                    <h3>Data Master Guru</h3>
+                    <div class="action-buttons">
+                        <button class="btn-outline" onclick="downloadTemplate()">Unduh Template Excel</button>
+                        <button class="btn-primary" onclick="document.getElementById('excel-upload').click()">Import Excel</button>
+                        <input type="file" id="excel-upload" class="hidden" accept=".xlsx, .xls" onchange="handleExcelImport(event)">
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table id="tabel-guru">
+                        <thead>
+                            <tr><th>No</th><th>Barcode</th><th>Nama</th><th>Tahun</th><th>Daerah</th><th>Kamar</th><th>Study</th><th>No HP</th><th>Zona</th></tr>
+                        </thead>
+                        <tbody id="body-guru">
+                            <!-- Data akan dimuat disini -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- MANAJEMEN ZONA -->
+            <div id="page-zona" class="page hidden admin-only">
+                <div class="section-header flex-between">
+                    <h3>Manajemen Zona Belajar</h3>
+                    <button class="btn-outline" onclick="window.print()">Print Semua QR</button>
+                </div>
+                <div class="stats-grid" id="zona-grid">
+                    <!-- Kartu zona akan digenerate via JS -->
+                </div>
+            </div>
+            
+            <!-- REKAP -->
+            <div id="page-rekap" class="page hidden admin-only">
+                <div class="section-header flex-between">
+                    <h3>Rekap Kehadiran</h3>
+                    <button class="btn-secondary" onclick="exportToExcel()">Export ke Excel</button>
+                </div>
+                <!-- Tabel rekap -->
+            </div>
+        </main>
+    </section>
+
+    <script src="script.js"></script>
+</body>
+</html>
