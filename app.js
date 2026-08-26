@@ -1,5 +1,5 @@
 // ==========================================
-// SISTEM ABSENSI HYBRID + FIREBASE + QOBLIYAH/BAKDIYAH + LIVE FILTER
+// SISTEM ABSENSI HYBRID + FIREBASE + QOBLIYAH/BAKDIYAH + LIVE FILTER + POPUP STATUS
 // ==========================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
@@ -25,6 +25,7 @@ let activeSessionData = null;
 
 let allRekapData = []; 
 let filteredRekapData = [];
+let currentEditIndex = -1; // Variabel penyimpan baris yang sedang diedit di modal
 
 const DEFAULT_ZONES = [
     { id: "G_RIYADH", nama: "Gedung Riyadh", kode: "QR_G_RIYADH" },
@@ -567,7 +568,7 @@ async function renderTabelGuru() {
     let idx = 1;
     guruSnap.forEach((doc) => {
         let guru = doc.data();
-        let barcodeId = doc.id; // Barcode menjadi ID di database
+        let barcodeId = doc.id; 
         tbody.innerHTML += `<tr>
             <td>${idx++}</td>
             <td>${guru.Barcode}</td>
@@ -586,7 +587,6 @@ async function renderTabelGuru() {
     });
 }
 
-// --- MANAJEMEN ZONA ---
 async function renderManajemenZona() {
     const grid = document.getElementById("zona-grid");
     const zonesSnap = await getDocs(collection(db, "zones"));
@@ -603,7 +603,7 @@ async function renderManajemenZona() {
 }
 
 
-// --- 8. FUNGSI LOGIKA REKAP OTOMATIS & LIVE FILTER ---
+// --- 8. FUNGSI LOGIKA REKAP OTOMATIS & KONFIRMASI STATUS UI (MODAL) ---
 async function getRekapWithAbsentees() {
     const attSnap = await getDocs(collection(db, "attendance"));
     const guruSnap = await getDocs(collection(db, "guru"));
@@ -616,6 +616,8 @@ async function getRekapWithAbsentees() {
 
     attSnap.forEach(doc => {
         let d = doc.data();
+        d.docId = doc.id;           
+        d.isVirtual = false;        
         dataRekap.push(d);
         
         let sessionKey = `${d.tanggal}_${d.namaKegiatan}_${d.tipeSesi}`;
@@ -634,6 +636,7 @@ async function getRekapWithAbsentees() {
         allGuru.forEach(guru => {
             if (!session.attendedEmails.has(guru.Email)) {
                 dataRekap.push({
+                    isVirtual: true, email: guru.Email,
                     tanggal: session.tanggal, hariStr: session.hariStr, tanggalStr: session.tanggalStr, waktu: "-",
                     namaKegiatan: session.namaKegiatan, tipeSesi: session.tipeSesi, namaGuru: guru.Nama, namaZona: guru.Zona || "-",
                     status: "Tidak Hadir", adminPenanggungJawab: session.adminPenanggungJawab, timestamp: session.timestamp - 1 
@@ -648,16 +651,118 @@ async function getRekapWithAbsentees() {
 
 async function renderRekap() {
     const tbody = document.getElementById("body-rekap");
-    tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>Mengkalkulasi kehadiran dan alpa dari server...</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Mengkalkulasi kehadiran dan alpa dari server...</td></tr>";
     try {
         allRekapData = await getRekapWithAbsentees();
         filteredRekapData = [...allRekapData]; 
         
         window.applyFilters(); 
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan='8' style='text-align:center; color:red;'>Gagal memuat: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan='9' style='text-align:center; color:red;'>Gagal memuat: ${error.message}</td></tr>`;
     }
 }
+
+// ----------------------------------------------------
+// SISTEM POP-UP UBAH STATUS (MODAL UI)
+// ----------------------------------------------------
+window.ubahStatusRekap = (index) => {
+    if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
+    
+    currentEditIndex = index;
+    const data = filteredRekapData[index];
+    
+    // Tampilkan detail guru
+    document.getElementById("modal-status-name").innerHTML = `<strong>${data.namaGuru}</strong><br>Sesi: ${data.namaKegiatan} (${data.tipeSesi})`;
+    
+    // Setel status sebelumnya ke dropdown
+    document.getElementById("modal-status-select").value = data.status;
+    
+    // Setel waktu 
+    const timeGroup = document.getElementById("modal-status-time-group");
+    if (data.isVirtual || data.status === "Tidak Hadir") {
+        const now = new Date();
+        document.getElementById("modal-status-time").value = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+        timeGroup.classList.add("hidden"); // Sembunyikan jam jika defaultnya Tidak Hadir
+    } else {
+        document.getElementById("modal-status-time").value = data.waktu;
+        timeGroup.classList.remove("hidden");
+    }
+    
+    document.getElementById("modal-status").classList.remove("hidden");
+};
+
+window.onStatusSelectChange = () => {
+    const val = document.getElementById("modal-status-select").value;
+    if (val === "Tidak Hadir") {
+        document.getElementById("modal-status-time-group").classList.add("hidden");
+    } else {
+        document.getElementById("modal-status-time-group").classList.remove("hidden");
+    }
+};
+
+window.closeModalStatus = () => {
+    document.getElementById("modal-status").classList.add("hidden");
+    currentEditIndex = -1;
+};
+
+window.simpanStatusBaru = async () => {
+    if (currentEditIndex === -1) return;
+    
+    const data = filteredRekapData[currentEditIndex];
+    const statusBaru = document.getElementById("modal-status-select").value;
+    const jamBaru = document.getElementById("modal-status-time").value;
+    const btnSimpan = document.getElementById("btn-simpan-status");
+
+    // Jika tidak ada perubahan, langsung tutup saja
+    if (statusBaru === data.status && jamBaru === data.waktu) {
+        window.closeModalStatus();
+        return;
+    }
+
+    try {
+        btnSimpan.innerText = "Menyimpan...";
+        btnSimpan.disabled = true;
+        
+        if (data.isVirtual) {
+            // DARI "TIDAK HADIR" (ALPA VIRTUAL) MENJADI STATUS LAIN
+            if (statusBaru !== "Tidak Hadir") {
+                const now = new Date();
+                await addDoc(collection(db, "attendance"), {
+                    namaGuru: data.namaGuru, email: data.email, namaZona: data.namaZona, waktu: jamBaru || "-", status: statusBaru, 
+                    tanggal: data.tanggal, hariStr: data.hariStr, tanggalStr: data.tanggalStr, namaKegiatan: data.namaKegiatan, 
+                    tipeSesi: data.tipeSesi, adminPenanggungJawab: currentUserData.nama + " (Konfirmasi)", timestamp: now.getTime()
+                });
+                alert(`Sukses! Kehadiran ${data.namaGuru} tercatat sebagai ${statusBaru}.`);
+            }
+        } else {
+            // MENGEDIT DATA YANG SUDAH ADA DI CLOUD
+            if (statusBaru === "Tidak Hadir") {
+                if(confirm("Yakin ubah ke TIDAK HADIR? Riwayat absen ini akan DIHAPUS dari server.")) {
+                    await deleteDoc(doc(db, "attendance", data.docId));
+                    alert(`Data dihapus. ${data.namaGuru} kembali berstatus Tidak Hadir.`);
+                } else {
+                    btnSimpan.innerText = "Simpan"; btnSimpan.disabled = false;
+                    return;
+                }
+            } else {
+                await updateDoc(doc(db, "attendance", data.docId), {
+                    status: statusBaru,
+                    waktu: jamBaru || "-",
+                    adminPenanggungJawab: currentUserData.nama + " (Update)"
+                });
+                alert(`Sukses! Status ${data.namaGuru} diperbarui.`);
+            }
+        }
+        
+        window.closeModalStatus();
+        renderRekap(); // Refresh tabel
+    } catch (error) {
+        alert("Gagal memperbarui status: " + error.message);
+    } finally {
+        btnSimpan.innerText = "Simpan";
+        btnSimpan.disabled = false;
+    }
+};
 
 window.applyFilters = () => {
     const fTanggal = document.getElementById("filter-tanggal").value;
@@ -690,14 +795,15 @@ function drawRekapTable(data) {
     tbody.innerHTML = "";
     
     if (data.length === 0) {
-        tbody.innerHTML = "<tr><td colspan='8' style='text-align:center; padding:20px;'>Tidak ada data yang sesuai dengan kriteria filter.</td></tr>";
+        tbody.innerHTML = "<tr><td colspan='9' style='text-align:center; padding:20px;'>Tidak ada data yang sesuai dengan kriteria filter.</td></tr>";
         return;
     }
 
-    data.forEach(d => {
+    data.forEach((d, index) => {
         let badgeStyle = "";
         if (d.status === 'Tepat Waktu') badgeStyle = "background:#d1fae5; color:#059669;";
         else if (d.status === 'Terlambat') badgeStyle = "background:#ffedd5; color:#ea580c;";
+        else if (d.status === 'Izin' || d.status === 'Sakit') badgeStyle = "background:#fef08a; color:#a16207;"; 
         else badgeStyle = "background:#fee2e2; color:#dc2626;"; 
 
         tbody.innerHTML += `<tr>
@@ -709,6 +815,9 @@ function drawRekapTable(data) {
             <td>${d.namaZona}</td>
             <td><span class="badge" style="${badgeStyle}">${d.status}</span></td>
             <td>${d.adminPenanggungJawab}</td>
+            <td>
+                <button onclick="ubahStatusRekap(${index})" style="background:#6366f1; color:#fff; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:0.75rem;">Ubah Status</button>
+            </td>
         </tr>`;
     });
 }
