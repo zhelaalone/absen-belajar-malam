@@ -1,9 +1,26 @@
 // ==========================================
-// SISTEM ABSENSI HYBRID (ZONA & KARTU GURU)
+// SISTEM ABSENSI HYBRID + FIREBASE FIRESTORE
 // ==========================================
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, doc, writeBatch } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+
+// --- KONFIGURASI FIREBASE ANDA ---
+const firebaseConfig = {
+    apiKey: "AIzaSyDmzBCTSPH8IgLY030UrKo0DVAMfE6_H30",
+    authDomain: "absensi-belajar-malam.firebaseapp.com",
+    projectId: "absensi-belajar-malam",
+    storageBucket: "absensi-belajar-malam.firebasestorage.app",
+    messagingSenderId: "701554843247",
+    appId: "1:701554843247:web:16891ac550dcf587aab79a"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 let currentUserData = null;
 let html5QrcodeScanner = null;
+let unsubscribeDashboard = null; // Untuk mematikan real-time listener saat pindah menu
 
 const DEFAULT_ZONES = [
     { id: "G_RIYADH", nama: "Gedung Riyadh", kode: "QR_G_RIYADH" },
@@ -12,14 +29,22 @@ const DEFAULT_ZONES = [
     { id: "AUDITORIUM", nama: "Auditorium", kode: "QR_AUDITORIUM" }
 ];
 
-function initSystem() {
-    if (!localStorage.getItem("db_zones")) localStorage.setItem("db_zones", JSON.stringify(DEFAULT_ZONES));
-    if (!localStorage.getItem("db_guru")) localStorage.setItem("db_guru", JSON.stringify([]));
+// Inisialisasi Zona ke Firebase (Berjalan sekali saat awal)
+async function initSystem() {
+    const zoneSnap = await getDocs(collection(db, "zones"));
+    if (zoneSnap.empty) {
+        const batch = writeBatch(db);
+        DEFAULT_ZONES.forEach(z => {
+            batch.set(doc(db, "zones", z.id), z);
+        });
+        await batch.commit();
+        console.log("Zona default berhasil dibuat di Cloud!");
+    }
 }
 
-// --- 1. LOGIN & PROTEKSI BUG FLASHING ---
-function checkLoginStatus() {
-    const loggedInUser = localStorage.getItem("mockUser");
+// --- 1. LOGIN SYSTEM ---
+async function checkLoginStatus() {
+    const loggedInUser = sessionStorage.getItem("mockUser"); // Pakai session agar aman saat tab ditutup
     if (loggedInUser) {
         currentUserData = JSON.parse(loggedInUser);
         
@@ -31,63 +56,78 @@ function checkLoginStatus() {
         if (currentUserData.role === "ADMIN") {
             document.querySelectorAll(".admin-only").forEach(el => {
                 el.classList.remove("hidden");
-                el.style.display = ""; // Kembalikan ke normal
+                el.style.display = ""; 
             });
-            initAdminDashboard();
             renderTabelGuru();
             renderManajemenZona();
         } else {
-            // Fix Bug: Sembunyikan secara paksa agar tidak berkedip
             document.querySelectorAll(".admin-only").forEach(el => {
                 el.classList.add("hidden");
                 el.style.display = "none"; 
             });
-            initGuruDashboard();
         }
-        
-        navigate('dashboard'); // Selalu kembali ke dashboard saat awal masuk
+        window.navigate('dashboard');
     } else {
         document.getElementById("login-section").classList.remove("hidden");
         document.getElementById("app-section").classList.add("hidden");
     }
 }
 
-document.getElementById("login-form").addEventListener("submit", (e) => {
+document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = document.getElementById("email").value;
     const password = document.getElementById("password").value;
+    const errorMsg = document.getElementById("login-error");
+    const btnSubmit = document.querySelector("button[type='submit']");
+    
+    btnSubmit.innerText = "Memeriksa ke Cloud...";
+    btnSubmit.disabled = true;
 
+    // Login Admin
     if (email === "zhelaal.one@gmail.com" && password === "2026") {
         const userData = { uid: "ADM-001", nama: "Zhela (Admin)", email: email, role: "ADMIN" };
-        localStorage.setItem("mockUser", JSON.stringify(userData));
+        sessionStorage.setItem("mockUser", JSON.stringify(userData));
+        btnSubmit.innerText = "Masuk ke Sistem";
+        btnSubmit.disabled = false;
         checkLoginStatus();
         return;
     }
 
-    const guruList = JSON.parse(localStorage.getItem("db_guru") || "[]");
-    const foundGuru = guruList.find(g => g.Email === email);
+    // Login Guru (Cek ke Firebase)
+    try {
+        const q = query(collection(db, "guru"), where("Email", "==", email));
+        const querySnapshot = await getDocs(q);
 
-    if (foundGuru) {
-        if (password === "123456") {
-            const userData = { uid: foundGuru.Barcode, nama: foundGuru.Nama, email: foundGuru.Email, zona: foundGuru.Zona, role: "GURU" };
-            localStorage.setItem("mockUser", JSON.stringify(userData));
-            checkLoginStatus();
+        if (!querySnapshot.empty) {
+            if (password === "123456") {
+                const foundGuru = querySnapshot.docs[0].data();
+                const userData = { uid: foundGuru.Barcode, nama: foundGuru.Nama, email: foundGuru.Email, zona: foundGuru.Zona, role: "GURU" };
+                sessionStorage.setItem("mockUser", JSON.stringify(userData));
+                checkLoginStatus();
+            } else {
+                errorMsg.innerText = "Password salah! (Gunakan: 123456)";
+            }
         } else {
-            document.getElementById("login-error").innerText = "Password salah! (Gunakan: 123456)";
+            errorMsg.innerText = "Email belum terdaftar di Cloud.";
         }
-    } else {
-        document.getElementById("login-error").innerText = "Email belum terdaftar.";
+    } catch (error) {
+        errorMsg.innerText = "Gagal terhubung ke server.";
+        console.error(error);
     }
+    
+    btnSubmit.innerText = "Masuk ke Sistem";
+    btnSubmit.disabled = false;
 });
 
-window.logout = () => { localStorage.removeItem("mockUser"); location.reload(); };
+window.logout = () => { 
+    sessionStorage.removeItem("mockUser"); 
+    if(unsubscribeDashboard) unsubscribeDashboard();
+    location.reload(); 
+};
 
-// --- 2. NAVIGASI MENU ---
+// --- 2. NAVIGASI (Didaftarkan ke window karena menggunakan type="module") ---
 window.navigate = (pageId) => {
-    // Keamanan Ekstra: Cegah Guru membuka halaman admin
-    if (currentUserData.role !== "ADMIN" && (pageId === "guru" || pageId === "zona" || pageId === "rekap")) {
-        return;
-    }
+    if (currentUserData.role !== "ADMIN" && (pageId === "guru" || pageId === "zona" || pageId === "rekap")) return;
 
     document.querySelectorAll(".page").forEach(page => page.classList.add("hidden"));
     const targetPage = document.getElementById(`page-${pageId}`);
@@ -99,11 +139,15 @@ window.navigate = (pageId) => {
         document.getElementById("btn-start-scan").classList.remove("hidden");
     }
 
-    // Ubah tampilan scanner sesuai peran (Hybrid)
     if (pageId === "scan") setupScannerUI();
+    if (pageId === "dashboard") initDashboardRealtime();
+    else if(unsubscribeDashboard) {
+        unsubscribeDashboard(); // Matikan listener jika bukan di dashboard untuk hemat kuota
+        unsubscribeDashboard = null;
+    }
 };
 
-function setupScannerUI() {
+async function setupScannerUI() {
     if (!currentUserData) return;
     const adminSelector = document.getElementById("admin-zone-selector");
     const scanTitle = document.getElementById("scan-title");
@@ -115,10 +159,10 @@ function setupScannerUI() {
         scanDesc.innerText = "Pilih zona tugas Anda, lalu scan Barcode/ID Card milik guru.";
         
         const select = document.getElementById("pic-zone-select");
-        const zones = JSON.parse(localStorage.getItem("db_zones") || "[]");
+        const zonesSnap = await getDocs(collection(db, "zones"));
         select.innerHTML = '<option value="">-- Pilih Zona Anda Bertugas --</option>';
-        zones.forEach(z => {
-            select.innerHTML += `<option value="${z.id}">${z.nama}</option>`;
+        zonesSnap.forEach(doc => {
+            select.innerHTML += `<option value="${doc.data().id}">${doc.data().nama}</option>`;
         });
     } else {
         adminSelector.classList.add("hidden");
@@ -127,59 +171,53 @@ function setupScannerUI() {
     }
 }
 
-// --- 3. DASHBOARD ---
-function initAdminDashboard() {
-    let attendanceList = JSON.parse(localStorage.getItem("db_attendance") || "[]");
-    let guruList = JSON.parse(localStorage.getItem("db_guru") || "[]");
+// --- 3. DASHBOARD REAL-TIME ---
+function initDashboardRealtime() {
     const today = new Date().toISOString().split('T')[0];
-    
-    let todaysData = attendanceList.filter(d => d.tanggal === today);
-    let totalHadir = todaysData.length;
-    let totalGuru = guruList.length > 0 ? guruList.length : 1; 
-    let belumHadir = totalGuru - totalHadir;
-    
-    let tepatWaktu = todaysData.filter(d => d.status === "Tepat Waktu").length;
-    let terlambat = todaysData.filter(d => d.status === "Terlambat").length;
+    const q = query(collection(db, "attendance"), where("tanggal", "==", today));
 
-    const tbody = document.getElementById("recent-attendance-body");
-    if(tbody) tbody.innerHTML = "";
+    // ONSNAPSHOT = Data otomatis berubah di layar jika ada yang absen di HP lain!
+    unsubscribeDashboard = onSnapshot(q, async (snapshot) => {
+        let todaysData = [];
+        snapshot.forEach(doc => todaysData.push(doc.data()));
 
-    todaysData.slice().reverse().forEach(data => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${data.namaGuru}</td><td>${data.namaZona}</td><td>${data.waktu}</td><td><span class="badge ${data.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${data.status}</span></td>`;
-        if(tbody) tbody.appendChild(tr);
-    });
+        const tbody = document.getElementById("recent-attendance-body");
+        if(!tbody) return;
+        tbody.innerHTML = "";
 
-    if(document.getElementById("stat-total")) document.getElementById("stat-total").innerText = totalGuru;
-    if(document.getElementById("stat-hadir")) document.getElementById("stat-hadir").innerText = totalHadir;
-    if(document.getElementById("stat-belum")) document.getElementById("stat-belum").innerText = belumHadir < 0 ? 0 : belumHadir;
-    if(document.getElementById("stat-tepat")) document.getElementById("stat-tepat").innerText = tepatWaktu;
-    if(document.getElementById("stat-terlambat")) document.getElementById("stat-terlambat").innerText = terlambat;
-}
+        if (currentUserData.role === "ADMIN") {
+            const guruSnap = await getDocs(collection(db, "guru"));
+            let totalGuru = guruSnap.empty ? 1 : guruSnap.size;
+            let totalHadir = todaysData.length;
+            let belumHadir = totalGuru - totalHadir;
+            let tepatWaktu = todaysData.filter(d => d.status === "Tepat Waktu").length;
+            let terlambat = todaysData.filter(d => d.status === "Terlambat").length;
 
-function initGuruDashboard() {
-    let attendanceList = JSON.parse(localStorage.getItem("db_attendance") || "[]");
-    const today = new Date().toISOString().split('T')[0];
-    let myAttendance = attendanceList.filter(d => d.email === currentUserData.email);
-    
-    const tbody = document.getElementById("recent-attendance-body");
-    if(tbody) tbody.innerHTML = "";
+            document.getElementById("stat-total").innerText = totalGuru;
+            document.getElementById("stat-hadir").innerText = totalHadir;
+            document.getElementById("stat-belum").innerText = belumHadir < 0 ? 0 : belumHadir;
+            document.getElementById("stat-tepat").innerText = tepatWaktu;
+            document.getElementById("stat-terlambat").innerText = terlambat;
 
-    if (myAttendance.length === 0) {
-        tbody.innerHTML = "<tr><td colspan='4' style='text-align:center;'>Anda belum absen hari ini.</td></tr>";
-        return;
-    }
-
-    myAttendance.slice().reverse().forEach(data => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${data.namaGuru}</td><td>${data.namaZona}</td><td>${data.waktu}</td><td><span class="badge ${data.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${data.status}</span></td>`;
-        if(tbody) tbody.appendChild(tr);
+            todaysData.sort((a,b) => b.waktu.localeCompare(a.waktu)).forEach(data => {
+                tbody.innerHTML += `<tr><td>${data.namaGuru}</td><td>${data.namaZona}</td><td>${data.waktu}</td><td><span class="badge ${data.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${data.status}</span></td></tr>`;
+            });
+        } else {
+            let myAttendance = todaysData.filter(d => d.email === currentUserData.email);
+            if (myAttendance.length === 0) {
+                tbody.innerHTML = "<tr><td colspan='4' style='text-align:center;'>Anda belum absen hari ini.</td></tr>";
+            } else {
+                myAttendance.sort((a,b) => b.waktu.localeCompare(a.waktu)).forEach(data => {
+                    tbody.innerHTML += `<tr><td>${data.namaGuru}</td><td>${data.namaZona}</td><td>${data.waktu}</td><td><span class="badge ${data.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${data.status}</span></td></tr>`;
+                });
+            }
+        }
     });
 }
 
-// --- 4. DATA GURU (IMPORT) ---
+// --- 4. DATA GURU (IMPORT MASSAL KE CLOUD) ---
 window.downloadTemplate = () => {
-    const templateData = [{"No": 1, "Barcode": "187643", "Nama": "Raihan", "Tahun": "Thn 6", "Daerah": "Bima", "Kamar": "Panjimas", "Study": "Ilmu Qur'an Tafsir", "No HP": "08123456789", "Zona": "Gedung Riyadh", "Email": "raihan@eduabsen.com"}];
+    const templateData = [{"No": 1, "Barcode": "187643", "Nama": "Raihan", "Tahun": "Thn 6", "Daerah": "Bima", "Kamar": "Panjimas", "Study": "Ilmu Qur'an Tafsir", "No HP": "08123456789", "Zona": "Gedung Riyadh", "Email": "ahmad.faizan@eduabsen.com"}];
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Data Guru");
@@ -191,51 +229,69 @@ window.handleExcelImport = (event) => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, {type: 'array'});
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        
         let validData = [];
-        let errorCount = 0;
-
         jsonData.forEach(row => {
             if(row.Barcode && row.Nama && row.Zona && row.Email) {
                 row["No HP"] = row["No HP"] ? row["No HP"].toString() : "-";
+                row["Barcode"] = row["Barcode"].toString();
                 validData.push(row);
-            } else {
-                errorCount++;
             }
         });
 
         if (validData.length > 0) {
-            localStorage.setItem("db_guru", JSON.stringify(validData));
-            alert(`Berhasil mengimpor ${validData.length} data guru.${errorCount > 0 ? ' (' + errorCount + ' data gagal)' : ''}`);
-            renderTabelGuru();
-            initAdminDashboard();
+            alert("Sedang mengupload " + validData.length + " data ke server Cloud... Mohon tunggu.");
+            try {
+                const batch = writeBatch(db);
+                validData.forEach(guru => {
+                    // Gunakan Barcode sebagai ID Dokumen agar tidak ada data ganda
+                    const docRef = doc(db, "guru", guru.Barcode);
+                    batch.set(docRef, guru);
+                });
+                await batch.commit();
+                alert("Berhasil! Semua data guru sudah tersimpan di Firebase.");
+                renderTabelGuru();
+            } catch (error) {
+                alert("Gagal mengupload: " + error.message);
+            }
         } else {
-            alert("Gagal mengimpor data. Kolom Barcode, Nama, Zona, & Email wajib diisi.");
+            alert("Data Excel kosong atau format salah.");
         }
         event.target.value = ""; 
     };
     reader.readAsArrayBuffer(file);
 };
 
-function renderTabelGuru() {
+async function renderTabelGuru() {
     const tbody = document.getElementById("body-guru");
-    const guruData = JSON.parse(localStorage.getItem("db_guru") || "[]");
-    tbody.innerHTML = "";
-    if (guruData.length === 0) return tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Belum ada data guru.</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Memuat data dari server...</td></tr>";
     
-    guruData.forEach((guru, idx) => {
-        tbody.innerHTML += `<tr><td>${idx + 1}</td><td>${guru.Barcode}</td><td>${guru.Nama}</td><td>${guru.Tahun}</td><td>${guru.Daerah}</td><td>${guru.Kamar}</td><td>${guru.Study}</td><td>${guru["No HP"]}</td><td>${guru.Zona}</td></tr>`;
+    const guruSnap = await getDocs(collection(db, "guru"));
+    tbody.innerHTML = "";
+    
+    if (guruSnap.empty) return tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Belum ada data guru.</td></tr>";
+    
+    let idx = 1;
+    guruSnap.forEach((doc) => {
+        let guru = doc.data();
+        tbody.innerHTML += `<tr><td>${idx++}</td><td>${guru.Barcode}</td><td>${guru.Nama}</td><td>${guru.Tahun}</td><td>${guru.Daerah}</td><td>${guru.Kamar}</td><td>${guru.Study}</td><td>${guru["No HP"]}</td><td>${guru.Zona}</td></tr>`;
     });
 }
 
-function renderManajemenZona() {
+async function renderManajemenZona() {
     const grid = document.getElementById("zona-grid");
-    const zones = JSON.parse(localStorage.getItem("db_zones") || "[]");
+    grid.innerHTML = "Memuat zona...";
+    const zonesSnap = await getDocs(collection(db, "zones"));
     grid.innerHTML = "";
+    
+    let zones = [];
+    zonesSnap.forEach(doc => zones.push(doc.data()));
+
     zones.forEach(zona => {
         grid.innerHTML += `<div class="zona-card"><h4>${zona.nama}</h4><p>Kode: ${zona.kode}</p><div class="qr-container" id="qr-${zona.id}"></div></div>`;
     });
@@ -244,7 +300,7 @@ function renderManajemenZona() {
     }, 100);
 }
 
-// --- 5. LOGIKA HYBRID SCANNER ---
+// --- 5. LOGIKA HYBRID SCANNER (CLOUD) ---
 window.startScanner = async () => {
     document.getElementById("btn-start-scan").classList.add("hidden");
     document.getElementById("scan-result").classList.add("hidden"); 
@@ -252,78 +308,73 @@ window.startScanner = async () => {
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
     
     html5QrcodeScanner.render(async (decodedText, decodedResult) => {
-        html5QrcodeScanner.clear(); // Hentikan kamera setelah dapat 1 hasil
+        html5QrcodeScanner.clear(); 
         document.getElementById("btn-start-scan").classList.remove("hidden");
+        document.getElementById("btn-start-scan").innerText = "Memproses...";
         await prosesHasilScan(decodedText);
+        document.getElementById("btn-start-scan").innerText = "Mulai Scan";
     }, (errorMessage) => {});
 };
 
 async function prosesHasilScan(scannedText) {
     let namaGuru, emailGuru, namaZona;
 
-    if (currentUserData.role === "ADMIN") {
-        // SISTEM 1: Admin Scan Kartu Guru
-        const selectedZoneId = document.getElementById("pic-zone-select").value;
-        if (!selectedZoneId) {
-            alert("GAGAL: Pilih 'Zona Tugas Anda' di kotak dropdown terlebih dahulu!");
-            return;
+    try {
+        if (currentUserData.role === "ADMIN") {
+            const selectedZoneId = document.getElementById("pic-zone-select").value;
+            if (!selectedZoneId) return alert("GAGAL: Pilih 'Zona Tugas Anda' di atas terlebih dahulu!");
+            
+            // Cari Zona
+            const qZone = query(collection(db, "zones"), where("id", "==", selectedZoneId));
+            const zoneSnap = await getDocs(qZone);
+            if(zoneSnap.empty) return alert("Zona tidak ditemukan di server.");
+            
+            // Cari Guru berdasarkan Barcode
+            const qGuru = query(collection(db, "guru"), where("Barcode", "==", scannedText));
+            const guruSnap = await getDocs(qGuru);
+            if(guruSnap.empty) return alert(`GAGAL: Guru dengan Barcode "${scannedText}" tidak terdaftar!`);
+            
+            namaGuru = guruSnap.docs[0].data().Nama;
+            emailGuru = guruSnap.docs[0].data().Email;
+            namaZona = zoneSnap.docs[0].data().nama;
+            
+        } else {
+            // Guru Scan Zona
+            const qZone = query(collection(db, "zones"), where("kode", "==", scannedText));
+            const zoneSnap = await getDocs(qZone);
+            if(zoneSnap.empty) return alert("GAGAL: QR Code Zona tidak valid!");
+            
+            namaGuru = currentUserData.nama;
+            emailGuru = currentUserData.email;
+            namaZona = zoneSnap.docs[0].data().nama;
         }
-        
-        const zones = JSON.parse(localStorage.getItem("db_zones") || "[]");
-        const foundZone = zones.find(z => z.id === selectedZoneId);
-        
-        const guruList = JSON.parse(localStorage.getItem("db_guru") || "[]");
-        const foundGuru = guruList.find(g => g.Barcode.toString() === scannedText);
-        
-        if (!foundGuru) {
-            alert(`GAGAL: Guru dengan Barcode "${scannedText}" tidak terdaftar!`);
-            return;
-        }
-        
-        namaGuru = foundGuru.Nama;
-        emailGuru = foundGuru.Email;
-        namaZona = foundZone.nama;
-        
-    } else {
-        // SISTEM 2: Guru Scan QR Zona
-        const zones = JSON.parse(localStorage.getItem("db_zones") || "[]");
-        const foundZone = zones.find(z => z.kode === scannedText);
 
-        if (!foundZone) {
-            alert("GAGAL: QR Code Zona tidak valid!");
-            return;
+        const batasWaktu = "20:30";
+        const now = new Date();
+        const currentTimeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+        const status = currentTimeString <= batasWaktu ? "Tepat Waktu" : "Terlambat";
+        const today = now.toISOString().split('T')[0];
+
+        // Cegah Absen Ganda di hari yang sama
+        const qCek = query(collection(db, "attendance"), where("tanggal", "==", today), where("email", "==", emailGuru));
+        const cekSnap = await getDocs(qCek);
+        if (!cekSnap.empty) {
+            return alert(`INFO: ${namaGuru} sudah melakukan absensi hari ini!`);
         }
-        
-        namaGuru = currentUserData.nama;
-        emailGuru = currentUserData.email;
-        namaZona = foundZone.nama;
+
+        // Tulis Data ke Cloud
+        await addDoc(collection(db, "attendance"), {
+            namaGuru, email: emailGuru, namaZona, tanggal: today, waktu: currentTimeString, status, timestamp: new Date()
+        });
+
+        // Tampilkan Sukses
+        const resultDiv = document.getElementById("scan-result");
+        resultDiv.classList.remove("hidden");
+        resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'};"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}">✓ Absensi Cloud Berhasil</h3><p><strong>Nama:</strong> ${namaGuru}</p><p><strong>Zona:</strong> ${namaZona}</p><p><strong>Waktu:</strong> ${currentTimeString} WIB</p><p><strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
+
+    } catch (error) {
+        alert("Terjadi kesalahan jaringan: " + error.message);
     }
-
-    // Simpan Data Kehadiran
-    const batasWaktu = "20:30";
-    const now = new Date();
-    const currentTimeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-    const status = currentTimeString <= batasWaktu ? "Tepat Waktu" : "Terlambat";
-    const today = now.toISOString().split('T')[0];
-
-    let attendanceList = JSON.parse(localStorage.getItem("db_attendance") || "[]");
-    const sudahAbsen = attendanceList.find(d => d.tanggal === today && d.email === emailGuru);
-    
-    if (sudahAbsen) {
-        alert(`INFO: ${namaGuru} sudah melakukan absensi hari ini!`);
-        return;
-    }
-
-    attendanceList.push({ namaGuru, email: emailGuru, namaZona, tanggal: today, waktu: currentTimeString, status });
-    localStorage.setItem("db_attendance", JSON.stringify(attendanceList));
-
-    // Tampilkan Papan Notifikasi
-    const resultDiv = document.getElementById("scan-result");
-    resultDiv.classList.remove("hidden");
-    resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'};"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}">✓ Absensi Berhasil</h3><p><strong>Nama:</strong> ${namaGuru}</p><p><strong>Zona:</strong> ${namaZona}</p><p><strong>Waktu:</strong> ${currentTimeString} WIB</p><p><strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
-
-    if (currentUserData.role === "ADMIN") initAdminDashboard();
-    else initGuruDashboard();
 }
 
 setInterval(() => {
