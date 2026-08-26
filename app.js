@@ -1,5 +1,5 @@
 // ==========================================
-// SISTEM ABSENSI HYBRID + FIREBASE + SESI DINAMIS
+// SISTEM ABSENSI HYBRID + FIREBASE + SESI + RBAC (SETTING)
 // ==========================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
@@ -22,7 +22,7 @@ let currentUserData = null;
 let html5QrcodeScanner = null;
 let unsubscribeDashboard = null; 
 let unsubscribeSession = null;
-let activeSessionData = null; // Menyimpan data sesi yang sedang aktif
+let activeSessionData = null; 
 
 const DEFAULT_ZONES = [
     { id: "G_RIYADH", nama: "Gedung Riyadh", kode: "QR_G_RIYADH" },
@@ -42,7 +42,7 @@ async function initSystem() {
     }
 }
 
-// --- 1. LOGIN SYSTEM ---
+// --- 1. LOGIN SYSTEM & HAK AKSES ---
 async function checkLoginStatus() {
     const loggedInUser = sessionStorage.getItem("mockUser");
     if (loggedInUser) {
@@ -54,20 +54,36 @@ async function checkLoginStatus() {
         document.getElementById("welcome-name").innerText = currentUserData.nama;
 
         if (currentUserData.role === "ADMIN") {
+            // Tampilkan menu admin biasa
             document.querySelectorAll(".admin-only").forEach(el => {
                 el.classList.remove("hidden");
                 el.style.display = ""; 
             });
+            
+            // Cek apakah dia SUPER ADMIN (Developer)
+            if (currentUserData.email === "zhelaal.one@gmail.com") {
+                document.querySelectorAll(".super-admin-only").forEach(el => {
+                    el.classList.remove("hidden");
+                    el.style.display = ""; 
+                });
+            } else {
+                document.querySelectorAll(".super-admin-only").forEach(el => {
+                    el.classList.add("hidden");
+                    el.style.display = "none"; 
+                });
+            }
+
             renderTabelGuru();
             renderManajemenZona();
         } else {
-            document.querySelectorAll(".admin-only").forEach(el => {
+            // Guru Biasa: Sembunyikan semuanya kecuali Dashboard & Scan
+            document.querySelectorAll(".admin-only, .super-admin-only").forEach(el => {
                 el.classList.add("hidden");
                 el.style.display = "none"; 
             });
         }
         
-        listenToActiveSession(); // Pantau sesi absensi secara real-time
+        listenToActiveSession(); 
         window.navigate('dashboard');
     } else {
         document.getElementById("login-section").classList.remove("hidden");
@@ -85,33 +101,55 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     btnSubmit.innerText = "Memeriksa ke Cloud...";
     btnSubmit.disabled = true;
 
-    if (email === "zhelaal.one@gmail.com" && password === "2026") {
-        const userData = { uid: "ADM-001", nama: "Zhela (Admin)", email: email, role: "ADMIN" };
-        sessionStorage.setItem("mockUser", JSON.stringify(userData));
-        btnSubmit.innerText = "Masuk ke Sistem";
-        btnSubmit.disabled = false;
-        checkLoginStatus();
-        return;
-    }
-
     try {
-        const q = query(collection(db, "guru"), where("Email", "==", email));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-            if (password === "123456") {
-                const foundGuru = querySnapshot.docs[0].data();
-                const userData = { uid: foundGuru.Barcode, nama: foundGuru.Nama, email: foundGuru.Email, zona: foundGuru.Zona, role: "GURU" };
+        // CEK LOGIN ADMIN (Password: 2026)
+        if (password === "2026") {
+            if (email === "zhelaal.one@gmail.com") {
+                // Login Super Admin (Bypass langsung)
+                const userData = { uid: "ADM-SUPER", nama: "Zhela (Super Admin)", email: email, role: "ADMIN" };
                 sessionStorage.setItem("mockUser", JSON.stringify(userData));
+                btnSubmit.innerText = "Masuk ke Sistem";
+                btnSubmit.disabled = false;
                 checkLoginStatus();
+                return;
             } else {
-                errorMsg.innerText = "Password salah! (Gunakan: 123456)";
+                // Cek ke Firestore apakah email ini didaftarkan sebagai admin biasa
+                const qAdmin = query(collection(db, "admins"), where("email", "==", email));
+                const adminSnap = await getDocs(qAdmin);
+                if (!adminSnap.empty) {
+                    const userData = { uid: "ADM-STAFF", nama: "Admin Penanggung Jawab", email: email, role: "ADMIN" };
+                    sessionStorage.setItem("mockUser", JSON.stringify(userData));
+                    btnSubmit.innerText = "Masuk ke Sistem";
+                    btnSubmit.disabled = false;
+                    checkLoginStatus();
+                    return;
+                } else {
+                    errorMsg.innerText = "Email ini tidak terdaftar sebagai Admin!";
+                }
             }
-        } else {
-            errorMsg.innerText = "Email belum terdaftar di Cloud.";
+        } 
+        // CEK LOGIN GURU (Password: 123456)
+        else {
+            const q = query(collection(db, "guru"), where("Email", "==", email));
+            const querySnapshot = await getDocs(q);
+
+            if (!querySnapshot.empty) {
+                if (password === "123456") {
+                    const foundGuru = querySnapshot.docs[0].data();
+                    const userData = { uid: foundGuru.Barcode, nama: foundGuru.Nama, email: foundGuru.Email, zona: foundGuru.Zona, role: "GURU" };
+                    sessionStorage.setItem("mockUser", JSON.stringify(userData));
+                    checkLoginStatus();
+                    return; // Keluar dari fungsi jika sukses
+                } else {
+                    errorMsg.innerText = "Password salah! (Guru: 123456 | Admin: 2026)";
+                }
+            } else {
+                errorMsg.innerText = "Email belum terdaftar di Cloud.";
+            }
         }
     } catch (error) {
         errorMsg.innerText = "Gagal terhubung ke server.";
+        console.error(error);
     }
     
     btnSubmit.innerText = "Masuk ke Sistem";
@@ -127,7 +165,9 @@ window.logout = () => {
 
 // --- 2. NAVIGASI ---
 window.navigate = (pageId) => {
-    if (currentUserData.role !== "ADMIN" && (pageId === "guru" || pageId === "zona" || pageId === "rekap")) return;
+    // Proteksi Keamanan Halaman
+    if (currentUserData.role !== "ADMIN" && (pageId === "guru" || pageId === "zona" || pageId === "rekap" || pageId === "setting")) return;
+    if (pageId === "setting" && currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak! Hanya Developer yang bisa membuka menu ini.");
 
     document.querySelectorAll(".page").forEach(page => page.classList.add("hidden"));
     const targetPage = document.getElementById(`page-${pageId}`);
@@ -141,6 +181,7 @@ window.navigate = (pageId) => {
 
     if (pageId === "scan") setupScannerUI();
     if (pageId === "rekap" && currentUserData.role === "ADMIN") renderRekap();
+    if (pageId === "setting" && currentUserData.email === "zhelaal.one@gmail.com") renderDaftarAdmin();
     
     if (pageId === "dashboard") initDashboardRealtime();
     else if(unsubscribeDashboard) {
@@ -173,15 +214,72 @@ async function setupScannerUI() {
     }
 }
 
-// --- 3. MANAJEMEN SESI ABSENSI (BARU) ---
+// --- 3. FITUR TAMBAH ADMIN (SUPER ADMIN ONLY) ---
+window.tambahAdmin = async () => {
+    if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak!");
+    
+    const emailBaru = document.getElementById("input-new-admin").value.trim();
+    if(!emailBaru) return alert("Email tidak boleh kosong!");
+    if(emailBaru === "zhelaal.one@gmail.com") return alert("Email ini otomatis sudah menjadi Super Admin!");
+
+    document.querySelector("#page-setting .btn-primary").innerText = "Menyimpan...";
+    
+    try {
+        const q = query(collection(db, "admins"), where("email", "==", emailBaru));
+        const snap = await getDocs(q);
+        if(!snap.empty) {
+            document.querySelector("#page-setting .btn-primary").innerText = "Tambah Admin";
+            return alert("Gagal: Email ini sudah terdaftar sebagai Admin!");
+        }
+
+        await addDoc(collection(db, "admins"), {
+            email: emailBaru,
+            role: "ADMIN",
+            timestamp: new Date()
+        });
+        
+        alert(`SUKSES! Admin dengan email ${emailBaru} berhasil ditambahkan.\nSekarang ia bisa login dengan password: 2026`);
+        document.getElementById("input-new-admin").value = "";
+        renderDaftarAdmin(); // Muat ulang tabel
+    } catch (error) {
+        alert("Gagal menambah admin: " + error.message);
+    }
+    document.querySelector("#page-setting .btn-primary").innerText = "Tambah Admin";
+};
+
+async function renderDaftarAdmin() {
+    const tbody = document.getElementById("body-daftar-admin");
+    tbody.innerHTML = `
+        <tr>
+            <td style="padding: 10px;">zhelaal.one@gmail.com</td>
+            <td style="padding: 10px;"><span class="badge badge-tepat" style="background:#4f46e5; color:#fff;">Super Admin (Developer)</span></td>
+        </tr>
+    `;
+    
+    try {
+        const snap = await getDocs(collection(db, "admins"));
+        snap.forEach(doc => {
+            let data = doc.data();
+            tbody.innerHTML += `
+                <tr>
+                    <td style="padding: 10px;">${data.email}</td>
+                    <td style="padding: 10px;"><span class="badge" style="background:#eef2ff; color:#4f46e5;">Admin Staff</span></td>
+                </tr>
+            `;
+        });
+    } catch (error) {
+        console.error("Gagal memuat admin", error);
+    }
+}
+
+
+// --- 4. MANAJEMEN SESI ABSENSI ---
 function listenToActiveSession() {
     unsubscribeSession = onSnapshot(doc(db, "settings", "current_session"), (docSnap) => {
         const statusSesiGuru = document.getElementById("lbl-status-sesi-guru");
         
         if (docSnap.exists() && docSnap.data().isActive) {
             activeSessionData = docSnap.data();
-            
-            // Tampilan Admin
             if (currentUserData.role === "ADMIN") {
                 document.getElementById("form-buka-sesi").style.display = "none";
                 document.getElementById("info-sesi-aktif").classList.remove("hidden");
@@ -189,19 +287,15 @@ function listenToActiveSession() {
                 document.getElementById("lbl-batas-jam").innerText = activeSessionData.batasWaktu;
                 document.getElementById("lbl-admin-sesi").innerText = activeSessionData.adminNama;
             }
-            // Tampilan Universal (Guru & Admin)
             statusSesiGuru.innerText = `(Sesi Aktif: ${activeSessionData.namaSesi})`;
             statusSesiGuru.style.backgroundColor = "var(--primary-light)";
             statusSesiGuru.style.color = "var(--primary)";
         } else {
             activeSessionData = null;
-            
-            // Tampilan Admin
             if (currentUserData.role === "ADMIN") {
                 document.getElementById("form-buka-sesi").style.display = "grid";
                 document.getElementById("info-sesi-aktif").classList.add("hidden");
             }
-            // Tampilan Universal (Guru & Admin)
             statusSesiGuru.innerText = "(Belum ada sesi absensi yang dimulai)";
             statusSesiGuru.style.backgroundColor = "#ffe6e6";
             statusSesiGuru.style.color = "var(--danger)";
@@ -216,7 +310,6 @@ function listenToActiveSession() {
 window.mulaiSesi = async () => {
     const namaSesi = document.getElementById("input-nama-sesi").value;
     const batasWaktu = document.getElementById("input-batas-jam").value;
-    
     if(!namaSesi || !batasWaktu) return alert("Mohon isi Nama Sesi dan Batas Jam Terakhir!");
 
     try {
@@ -242,13 +335,12 @@ window.tutupSesi = async () => {
 };
 
 
-// --- 4. DASHBOARD REAL-TIME ---
+// --- 5. DASHBOARD REAL-TIME ---
 function initDashboardRealtime() {
     if (unsubscribeDashboard) unsubscribeDashboard();
 
     const tbody = document.getElementById("recent-attendance-body");
     
-    // Jika tidak ada sesi aktif, kosongkan tabel di dashboard
     if (!activeSessionData) {
         tbody.innerHTML = "<tr><td colspan='4' style='text-align:center; padding:30px;'>Belum ada sesi absensi yang dimulai hari ini.</td></tr>";
         document.getElementById("stat-total").innerText = "0";
@@ -260,11 +352,7 @@ function initDashboardRealtime() {
     }
 
     const today = activeSessionData.tanggal;
-    const q = query(
-        collection(db, "attendance"), 
-        where("tanggal", "==", today),
-        where("sesi", "==", activeSessionData.namaSesi)
-    );
+    const q = query(collection(db, "attendance"), where("tanggal", "==", today), where("sesi", "==", activeSessionData.namaSesi));
 
     unsubscribeDashboard = onSnapshot(q, async (snapshot) => {
         let todaysData = [];
@@ -286,7 +374,6 @@ function initDashboardRealtime() {
             document.getElementById("stat-terlambat").innerText = terlambat;
 
             if(todaysData.length === 0) tbody.innerHTML = "<tr><td colspan='4' style='text-align:center;'>Belum ada yang hadir pada sesi ini.</td></tr>";
-            
             todaysData.sort((a,b) => b.waktu.localeCompare(a.waktu)).forEach(data => {
                 tbody.innerHTML += `<tr><td>${data.namaGuru}</td><td>${data.namaZona}</td><td>${data.waktu}</td><td><span class="badge ${data.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${data.status}</span></td></tr>`;
             });
@@ -304,17 +391,14 @@ function initDashboardRealtime() {
 }
 
 
-// --- 5. LOGIKA HYBRID SCANNER (CLOUD) ---
+// --- 6. LOGIKA HYBRID SCANNER (CLOUD) ---
 window.startScanner = async () => {
-    if (!activeSessionData) {
-        return alert("GAGAL: Admin belum memulai sesi absensi apapun! Silakan tunggu instruksi admin.");
-    }
+    if (!activeSessionData) return alert("GAGAL: Admin belum memulai sesi absensi apapun! Silakan tunggu instruksi admin.");
 
     document.getElementById("btn-start-scan").classList.add("hidden");
     document.getElementById("scan-result").classList.add("hidden"); 
     
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
-    
     html5QrcodeScanner.render(async (decodedText, decodedResult) => {
         html5QrcodeScanner.clear(); 
         document.getElementById("btn-start-scan").classList.remove("hidden");
@@ -326,7 +410,6 @@ window.startScanner = async () => {
 
 async function prosesHasilScan(scannedText) {
     let namaGuru, emailGuru, namaZona;
-
     try {
         if (currentUserData.role === "ADMIN") {
             const selectedZoneId = document.getElementById("pic-zone-select").value;
@@ -355,45 +438,30 @@ async function prosesHasilScan(scannedText) {
 
         const now = new Date();
         const currentTimeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-        
-        // Penentuan Status berdasarkan Jam Batas di Sesi Aktif
         const status = currentTimeString <= activeSessionData.batasWaktu ? "Tepat Waktu" : "Terlambat";
         
         const tanggalSQL = now.toISOString().split('T')[0];
         const hariIndo = now.toLocaleDateString('id-ID', { weekday: 'long' });
         const tanggalIndo = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-        // Cegah Absen Ganda di SESI YANG SAMA
         const qCek = query(collection(db, "attendance"), where("tanggal", "==", tanggalSQL), where("email", "==", emailGuru), where("sesi", "==", activeSessionData.namaSesi));
         const cekSnap = await getDocs(qCek);
-        if (!cekSnap.empty) {
-            return alert(`INFO: ${namaGuru} sudah tercatat hadir pada sesi "${activeSessionData.namaSesi}".`);
-        }
+        if (!cekSnap.empty) return alert(`INFO: ${namaGuru} sudah tercatat hadir pada sesi "${activeSessionData.namaSesi}".`);
 
-        // Tulis Data Terlengkap ke Cloud
         await addDoc(collection(db, "attendance"), {
-            namaGuru, email: emailGuru, namaZona, 
-            waktu: currentTimeString, 
-            status, 
-            tanggal: tanggalSQL,
-            hariStr: hariIndo,
-            tanggalStr: tanggalIndo,
-            sesi: activeSessionData.namaSesi,
-            adminPenanggungJawab: activeSessionData.adminNama,
-            timestamp: now.getTime() // untuk sorting
+            namaGuru, email: emailGuru, namaZona, waktu: currentTimeString, status, tanggal: tanggalSQL, hariStr: hariIndo, tanggalStr: tanggalIndo, sesi: activeSessionData.namaSesi, adminPenanggungJawab: activeSessionData.adminNama, timestamp: now.getTime()
         });
 
         const resultDiv = document.getElementById("scan-result");
         resultDiv.classList.remove("hidden");
         resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'};"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}">✓ Absensi Berhasil</h3><p><strong>Nama:</strong> ${namaGuru}</p><p><strong>Zona:</strong> ${namaZona}</p><p><strong>Sesi:</strong> ${activeSessionData.namaSesi}</p><p><strong>Waktu:</strong> ${currentTimeString} WIB</p><p><strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
-
     } catch (error) {
         alert("Terjadi kesalahan jaringan: " + error.message);
     }
 }
 
 
-// --- 6. DATA GURU (IMPORT) & REKAP ---
+// --- 7. DATA GURU (IMPORT) & REKAP ---
 window.downloadTemplate = () => {
     const templateData = [{"No": 1, "Barcode": "187643", "Nama": "Raihan", "Tahun": "Thn 6", "Daerah": "Bima", "Kamar": "Panjimas", "Study": "Ilmu Qur'an Tafsir", "No HP": "08123456789", "Zona": "Gedung Riyadh", "Email": "ahmad.faizan@eduabsen.com"}];
     const ws = XLSX.utils.json_to_sheet(templateData);
@@ -474,28 +542,17 @@ async function renderManajemenZona() {
 async function renderRekap() {
     const tbody = document.getElementById("body-rekap");
     tbody.innerHTML = "<tr><td colspan='7' style='text-align:center;'>Memuat riwayat dari server Cloud...</td></tr>";
-    
     try {
         const snap = await getDocs(collection(db, "attendance"));
         let dataRekap = [];
         snap.forEach(doc => dataRekap.push(doc.data()));
-        
-        // Urutkan dari yang paling baru absen
         dataRekap.sort((a, b) => b.timestamp - a.timestamp);
         
         tbody.innerHTML = "";
         if (dataRekap.length === 0) return tbody.innerHTML = "<tr><td colspan='7' style='text-align:center;'>Belum ada data riwayat absensi.</td></tr>";
 
         dataRekap.forEach(d => {
-            tbody.innerHTML += `<tr>
-                <td><strong>${d.hariStr}</strong>, ${d.tanggalStr}</td>
-                <td>${d.waktu}</td>
-                <td><span style="background:#eef2ff; color:#4f46e5; padding:3px 8px; border-radius:4px; font-size:0.85rem;">${d.sesi}</span></td>
-                <td><strong>${d.namaGuru}</strong></td>
-                <td>${d.namaZona}</td>
-                <td><span class="badge ${d.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${d.status}</span></td>
-                <td>${d.adminPenanggungJawab}</td>
-            </tr>`;
+            tbody.innerHTML += `<tr><td><strong>${d.hariStr}</strong>, ${d.tanggalStr}</td><td>${d.waktu}</td><td><span style="background:#eef2ff; color:#4f46e5; padding:3px 8px; border-radius:4px; font-size:0.85rem;">${d.sesi}</span></td><td><strong>${d.namaGuru}</strong></td><td>${d.namaZona}</td><td><span class="badge ${d.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${d.status}</span></td><td>${d.adminPenanggungJawab}</td></tr>`;
         });
     } catch (error) {
         tbody.innerHTML = `<tr><td colspan='7' style='text-align:center; color:red;'>Gagal memuat: ${error.message}</td></tr>`;
@@ -507,18 +564,10 @@ window.exportRekapToExcel = async () => {
         const snap = await getDocs(collection(db, "attendance"));
         let dataRekap = [];
         snap.forEach(doc => dataRekap.push(doc.data()));
-        dataRekap.sort((a, b) => b.timestamp - a.timestamp); // Urutkan dari yg terbaru
+        dataRekap.sort((a, b) => b.timestamp - a.timestamp); 
 
         let dataExport = dataRekap.map((d, index) => ({
-            "No": index + 1,
-            "Hari": d.hariStr,
-            "Tanggal": d.tanggalStr,
-            "Jam": d.waktu,
-            "Nama Guru": d.namaGuru,
-            "Zona": d.namaZona,
-            "Nama Sesi": d.sesi,
-            "Status Kehadiran": d.status,
-            "Admin Bertugas": d.adminPenanggungJawab
+            "No": index + 1, "Hari": d.hariStr, "Tanggal": d.tanggalStr, "Jam": d.waktu, "Nama Guru": d.namaGuru, "Zona": d.namaZona, "Nama Sesi": d.sesi, "Status Kehadiran": d.status, "Admin Bertugas": d.adminPenanggungJawab
         }));
 
         const ws = XLSX.utils.json_to_sheet(dataExport);
