@@ -7,6 +7,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     
+    <!-- CSS SNIPER: Memaksa menu login lenyap 100% saat disembunyikan -->
+    <style>
+        .hidden { display: none !important; }
+        #login-section.hidden { display: none !important; }
+        #login-section[style*="display: none"] { display: none !important; }
+    </style>
+    
     <!-- Libraries -->
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -79,7 +86,6 @@
                         <h3>Kontrol Sesi Absensi</h3>
                     </div>
                     
-                    <!-- FORM BUKA SESI (FLEXIBLE) -->
                     <div id="form-buka-sesi" style="display: grid; grid-template-columns: 1.5fr 1.5fr 1fr auto; gap: 15px; align-items: end; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); overflow-x: auto;">
                         <div class="input-group" style="margin-bottom: 0; min-width: 150px;">
                             <label>Nama Kegiatan</label>
@@ -211,7 +217,7 @@
                 </div>
             </div>
 
-            <!-- SETTING -->
+            <!-- SETTING (KHUSUS DEVELOPER) -->
             <div id="page-setting" class="page hidden super-admin-only">
                 <div class="section-header">
                     <h3>Pengaturan Sistem & Hak Akses</h3>
@@ -219,12 +225,16 @@
                 
                 <div class="content-section" style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #eee;">
                     <h4>Tambah Admin Baru</h4>
-                    <p style="font-size: 0.9rem; color: #666; margin-bottom: 15px;">Admin baru akan memiliki akses ke Dashboard, Data Guru, dan Rekap. Password login default: <strong>2026</strong></p>
+                    <p style="font-size: 0.9rem; color: #666; margin-bottom: 15px;">Berikan hak akses admin kepada staf atau guru. Password login default mereka adalah: <strong>2026</strong></p>
                     
-                    <div style="display: grid; grid-template-columns: 1fr auto; gap: 15px; align-items: end;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 15px; align-items: end;">
                         <div class="input-group" style="margin-bottom: 0;">
-                            <label>Email Admin Baru</label>
-                            <input type="email" id="input-new-admin" placeholder="Ketik email admin disini...">
+                            <label>Nama Admin (Untuk Laporan)</label>
+                            <input type="text" id="input-new-admin-nama" placeholder="Cth: Ustadz Hasan...">
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label>Email Akses Login</label>
+                            <input type="email" id="input-new-admin" placeholder="email@contoh.com">
                         </div>
                         <button class="btn-primary" onclick="tambahAdmin()" style="padding: 12px 24px;">Tambah Admin</button>
                     </div>
@@ -236,12 +246,12 @@
                         <table style="width: 100%; text-align: left; border-collapse: collapse;">
                             <thead>
                                 <tr style="border-bottom: 2px solid #eee;">
+                                    <th style="padding: 10px;">Nama</th>
                                     <th style="padding: 10px;">Email</th>
                                     <th style="padding: 10px;">Role</th>
                                 </tr>
                             </thead>
                             <tbody id="body-daftar-admin">
-                                <!-- Dimuat oleh JS -->
                             </tbody>
                         </table>
                     </div>
