@@ -51,6 +51,7 @@
                 <li class="admin-only hidden"><a href="#" onclick="navigate('guru')">Data Guru</a></li>
                 <li class="admin-only hidden"><a href="#" onclick="navigate('zona')">Manajemen Zona</a></li>
                 <li class="admin-only hidden"><a href="#" onclick="navigate('rekap')">Rekap</a></li>
+                <li class="super-admin-only hidden"><a href="#" onclick="navigate('setting')">Setting</a></li>
             </ul>
             <div class="user-profile">
                 <span id="user-name-display">Nama Guru</span>
@@ -78,7 +79,6 @@
                         <h3>Kontrol Sesi Absensi</h3>
                     </div>
                     
-                    <!-- Form Buka Sesi Baru -->
                     <div id="form-buka-sesi" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 15px; align-items: end; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
                         <div class="input-group" style="margin-bottom: 0;">
                             <label>Nama/Tujuan Absensi</label>
@@ -91,7 +91,6 @@
                         <button class="btn-primary" onclick="mulaiSesi()" style="padding: 12px 24px;">Mulai Absensi</button>
                     </div>
 
-                    <!-- Info Sesi Aktif -->
                     <div id="info-sesi-aktif" class="hidden" style="background: var(--primary-light); padding: 20px; border-radius: 12px; border-left: 5px solid var(--primary); display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <h4 style="color: var(--primary); margin-bottom: 5px; font-size: 1.1rem;">Sesi Berjalan: <strong id="lbl-nama-sesi"></strong></h4>
@@ -103,7 +102,6 @@
                     </div>
                 </div>
 
-                <!-- Admin Stats -->
                 <div class="stats-grid admin-only hidden">
                     <div class="stat-card"><div class="stat-title">Total Guru</div><div class="stat-value" id="stat-total">0</div></div>
                     <div class="stat-card"><div class="stat-title">Sudah Hadir</div><div class="stat-value text-primary" id="stat-hadir">0</div></div>
@@ -136,11 +134,9 @@
                             <p id="scan-desc">Arahkan kamera ke QR Code.</p>
                         </div>
                         
-                        <!-- KHUSUS ADMIN (PENANGGUNG JAWAB ZONA) -->
                         <div id="admin-zone-selector" class="hidden" style="margin-bottom: 20px; text-align: left;">
                             <label style="font-weight: 600; display: block; margin-bottom: 8px;">Pilih Zona Anda Bertugas:</label>
                             <select id="pic-zone-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif;">
-                                <!-- Option digenerate oleh JS -->
                             </select>
                         </div>
 
@@ -200,11 +196,48 @@
                             </tr>
                         </thead>
                         <tbody id="body-rekap">
-                            <!-- Data rekap dimuat di sini -->
                         </tbody>
                     </table>
                 </div>
             </div>
+
+            <!-- SETTING (KHUSUS DEVELOPER) -->
+            <div id="page-setting" class="page hidden super-admin-only">
+                <div class="section-header">
+                    <h3>Pengaturan Sistem & Hak Akses</h3>
+                </div>
+                
+                <div class="content-section" style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #eee;">
+                    <h4>Tambah Admin Baru</h4>
+                    <p style="font-size: 0.9rem; color: #666; margin-bottom: 15px;">Admin baru akan memiliki akses ke Dashboard, Data Guru, dan Rekap. Password login default untuk semua admin adalah: <strong>2026</strong></p>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr auto; gap: 15px; align-items: end;">
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label>Email Admin Baru</label>
+                            <input type="email" id="input-new-admin" placeholder="Ketik email admin disini...">
+                        </div>
+                        <button class="btn-primary" onclick="tambahAdmin()" style="padding: 12px 24px;">Tambah Admin</button>
+                    </div>
+
+                    <hr style="margin: 30px 0; border-top: 1px solid #eee;">
+                    
+                    <h4>Daftar Admin Terdaftar</h4>
+                    <div class="table-responsive" style="margin-top: 15px;">
+                        <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid #eee;">
+                                    <th style="padding: 10px;">Email</th>
+                                    <th style="padding: 10px;">Role</th>
+                                </tr>
+                            </thead>
+                            <tbody id="body-daftar-admin">
+                                <!-- Dimuat oleh JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </section>
 
