@@ -3,7 +3,7 @@
 // ==========================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, doc, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, doc, setDoc, writeBatch, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyDmzBCTSPH8IgLY030UrKo0DVAMfE6_H30",
@@ -23,7 +23,6 @@ let unsubscribeDashboard = null;
 let unsubscribeSession = null;
 let activeSessionData = null; 
 
-// Variabel Global Penyimpan Data Rekap untuk Filtering
 let allRekapData = []; 
 let filteredRekapData = [];
 
@@ -146,7 +145,6 @@ window.logout = () => {
     location.reload(); 
 };
 
-// --- 2. NAVIGASI ---
 window.navigate = (pageId) => {
     if (currentUserData.role !== "ADMIN" && (pageId === "guru" || pageId === "zona" || pageId === "rekap" || pageId === "setting")) return;
     if (pageId === "setting" && currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak! Hanya Developer yang bisa membuka menu ini.");
@@ -189,7 +187,7 @@ async function setupScannerUI() {
     }
 }
 
-// --- 3. FITUR TAMBAH ADMIN ---
+// --- 3. FITUR TAMBAH, EDIT, & HAPUS ADMIN ---
 window.tambahAdmin = async () => {
     if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak!");
     
@@ -209,7 +207,7 @@ window.tambahAdmin = async () => {
         }
 
         await addDoc(collection(db, "admins"), { nama: namaBaru, email: emailBaru, role: "ADMIN", timestamp: new Date() });
-        alert(`SUKSES! Admin ${namaBaru} (${emailBaru}) berhasil ditambahkan.\nInformasikan ke mereka untuk login dengan Password: 2026`);
+        alert(`SUKSES! Admin ${namaBaru} (${emailBaru}) berhasil ditambahkan.`);
         
         document.getElementById("input-new-admin-nama").value = "";
         document.getElementById("input-new-admin").value = "";
@@ -218,14 +216,63 @@ window.tambahAdmin = async () => {
     document.querySelector("#page-setting .btn-primary").innerText = "Tambah Admin";
 };
 
+window.hapusAdmin = async (id, nama) => {
+    if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak!");
+    if (confirm(`Peringatan: Yakin ingin MENGHAPUS akses admin untuk "${nama}"?`)) {
+        try {
+            await deleteDoc(doc(db, "admins", id));
+            alert(`Akses admin untuk ${nama} berhasil dicabut.`);
+            renderDaftarAdmin(); 
+        } catch (error) { alert("Gagal menghapus admin: " + error.message); }
+    }
+};
+
+window.editAdmin = async (id, namaLama, emailLama) => {
+    if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak!");
+    
+    const namaBaru = prompt("Ubah Nama Admin:", namaLama);
+    if (namaBaru === null) return; 
+    
+    const emailBaru = prompt("Ubah Email Akses Admin:", emailLama);
+    if (emailBaru === null) return; 
+
+    if (!namaBaru.trim() || !emailBaru.trim()) return alert("Nama dan Email tidak boleh kosong!");
+
+    try {
+        if (emailBaru.trim() !== emailLama) {
+            const q = query(collection(db, "admins"), where("email", "==", emailBaru.trim()));
+            const snap = await getDocs(q);
+            if (!snap.empty) return alert("Gagal: Email yang baru Anda masukkan sudah dipakai oleh admin lain!");
+        }
+        await updateDoc(doc(db, "admins", id), { nama: namaBaru.trim(), email: emailBaru.trim() });
+        alert(`SUKSES: Data admin berhasil diperbarui.`);
+        renderDaftarAdmin(); 
+    } catch (error) { alert("Gagal mengedit admin: " + error.message); }
+};
+
 async function renderDaftarAdmin() {
     const tbody = document.getElementById("body-daftar-admin");
-    tbody.innerHTML = `<tr><td style="padding: 10px;"><strong>Zhela (Super Admin)</strong></td><td style="padding: 10px;">zhelaal.one@gmail.com</td><td style="padding: 10px;"><span class="badge badge-tepat" style="background:#4f46e5; color:#fff;">Developer</span></td></tr>`;
+    tbody.innerHTML = `<tr>
+        <td style="padding: 10px;"><strong>Zhela (Super Admin)</strong></td>
+        <td style="padding: 10px;">zhelaal.one@gmail.com</td>
+        <td style="padding: 10px;"><span class="badge badge-tepat" style="background:#4f46e5; color:#fff;">Developer</span></td>
+        <td style="padding: 10px;"><span style="color:#9ca3af; font-size:0.8rem; font-style:italic;">Akses Mutlak</span></td>
+    </tr>`;
+    
     try {
         const snap = await getDocs(collection(db, "admins"));
         snap.forEach(doc => {
             let data = doc.data();
-            tbody.innerHTML += `<tr><td style="padding: 10px;"><strong>${data.nama || "Admin Staff"}</strong></td><td style="padding: 10px;">${data.email}</td><td style="padding: 10px;"><span class="badge" style="background:#eef2ff; color:#4f46e5;">Admin Staff</span></td></tr>`;
+            let adminId = doc.id; 
+            tbody.innerHTML += `<tr>
+                <td style="padding: 10px;"><strong>${data.nama || "Admin Staff"}</strong></td>
+                <td style="padding: 10px;">${data.email}</td>
+                <td style="padding: 10px;"><span class="badge" style="background:#eef2ff; color:#4f46e5;">Admin Staff</span></td>
+                <td style="padding: 10px;">
+                    <button onclick="editAdmin('${adminId}', '${data.nama}', '${data.email}')" style="background:#f59e0b; color:#fff; border:none; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:0.75rem; margin-right:4px;">Edit</button>
+                    <button onclick="hapusAdmin('${adminId}', '${data.nama}')" style="background:#dc2626; color:#fff; border:none; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:0.75rem;">Hapus</button>
+                </td>
+            </tr>`;
         });
     } catch (error) { console.error(error); }
 }
@@ -420,7 +467,54 @@ async function prosesHasilScan(scannedText) {
     } catch (error) { alert("Terjadi kesalahan jaringan: " + error.message); }
 }
 
-// --- 7. DATA GURU (IMPORT) & ZONA ---
+// --- 7. DATA GURU: EDIT, HAPUS, & IMPORT ---
+window.hapusGuru = async (barcode, nama) => {
+    const pass = prompt(`Masukkan password otorisasi untuk MENGHAPUS data ${nama}:`);
+    if (pass !== "kmigorda") {
+        if (pass !== null) alert("Password salah! Aksi dibatalkan.");
+        return;
+    }
+
+    if (confirm(`Peringatan: Yakin ingin menghapus guru "${nama}" dari sistem secara permanen?`)) {
+        try {
+            await deleteDoc(doc(db, "guru", barcode));
+            alert(`SUKSES: Data guru ${nama} berhasil dihapus.`);
+            renderTabelGuru();
+        } catch (error) { alert("Gagal menghapus data: " + error.message); }
+    }
+};
+
+window.editGuru = async (barcode, namaLama, zonaLama, emailLama, kamarLama) => {
+    const pass = prompt(`Masukkan password otorisasi untuk MENGEDIT data ${namaLama}:`);
+    if (pass !== "kmigorda") {
+        if (pass !== null) alert("Password salah! Aksi dibatalkan.");
+        return;
+    }
+
+    const namaBaru = prompt("Ubah Nama:", namaLama);
+    if (namaBaru === null) return;
+    
+    const kamarBaru = prompt("Ubah Kamar:", kamarLama);
+    if (kamarBaru === null) return;
+
+    const zonaBaru = prompt("Ubah Zona Penugasan:", zonaLama);
+    if (zonaBaru === null) return;
+    
+    const emailBaru = prompt("Ubah Email Login:", emailLama);
+    if (emailBaru === null) return;
+
+    try {
+        await updateDoc(doc(db, "guru", barcode), { 
+            Nama: namaBaru.trim(), 
+            Kamar: kamarBaru.trim(),
+            Zona: zonaBaru.trim(),
+            Email: emailBaru.trim()
+        });
+        alert(`SUKSES: Data guru berhasil diperbarui.`);
+        renderTabelGuru(); 
+    } catch (error) { alert("Gagal mengedit data guru: " + error.message); }
+};
+
 window.downloadTemplate = () => {
     const templateData = [{"No": 1, "Barcode": "187643", "Nama": "Raihan", "Tahun": "Thn 6", "Daerah": "Bima", "Kamar": "Panjimas", "Study": "Ilmu Qur'an Tafsir", "No HP": "08123456789", "Zona": "Gedung Riyadh", "Email": "ahmad.faizan@eduabsen.com"}];
     const ws = XLSX.utils.json_to_sheet(templateData);
@@ -465,18 +559,34 @@ window.handleExcelImport = (event) => {
 
 async function renderTabelGuru() {
     const tbody = document.getElementById("body-guru");
-    tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Memuat...</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Memuat...</td></tr>";
     const guruSnap = await getDocs(collection(db, "guru"));
     tbody.innerHTML = "";
-    if (guruSnap.empty) return tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Belum ada data guru.</td></tr>";
+    if (guruSnap.empty) return tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Belum ada data guru.</td></tr>";
     
     let idx = 1;
     guruSnap.forEach((doc) => {
         let guru = doc.data();
-        tbody.innerHTML += `<tr><td>${idx++}</td><td>${guru.Barcode}</td><td>${guru.Nama}</td><td>${guru.Tahun}</td><td>${guru.Daerah}</td><td>${guru.Kamar}</td><td>${guru.Study}</td><td>${guru["No HP"]}</td><td>${guru.Zona}</td></tr>`;
+        let barcodeId = doc.id; // Barcode menjadi ID di database
+        tbody.innerHTML += `<tr>
+            <td>${idx++}</td>
+            <td>${guru.Barcode}</td>
+            <td>${guru.Nama}</td>
+            <td>${guru.Tahun}</td>
+            <td>${guru.Daerah}</td>
+            <td>${guru.Kamar}</td>
+            <td>${guru.Study}</td>
+            <td>${guru["No HP"]}</td>
+            <td>${guru.Zona}</td>
+            <td>
+                <button onclick="editGuru('${barcodeId}', '${guru.Nama}', '${guru.Zona}', '${guru.Email}', '${guru.Kamar}')" style="background:#f59e0b; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:4px; display:block; width:100%;">Edit</button>
+                <button onclick="hapusGuru('${barcodeId}', '${guru.Nama}')" style="background:#dc2626; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; display:block; width:100%;">Hapus</button>
+            </td>
+        </tr>`;
     });
 }
 
+// --- MANAJEMEN ZONA ---
 async function renderManajemenZona() {
     const grid = document.getElementById("zona-grid");
     const zonesSnap = await getDocs(collection(db, "zones"));
@@ -536,23 +646,20 @@ async function getRekapWithAbsentees() {
     return dataRekap;
 }
 
-// Fungsi utama pemanggilan data rekap
 async function renderRekap() {
     const tbody = document.getElementById("body-rekap");
     tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>Mengkalkulasi kehadiran dan alpa dari server...</td></tr>";
     try {
         allRekapData = await getRekapWithAbsentees();
-        filteredRekapData = [...allRekapData]; // Salin ke data yang akan difilter
+        filteredRekapData = [...allRekapData]; 
         
-        window.applyFilters(); // Panggil fungsi filter (otomatis menggambar tabel)
+        window.applyFilters(); 
     } catch (error) {
         tbody.innerHTML = `<tr><td colspan='8' style='text-align:center; color:red;'>Gagal memuat: ${error.message}</td></tr>`;
     }
 }
 
-// Fungsi Live Filter
 window.applyFilters = () => {
-    // Ambil nilai dari semua kolom input filter
     const fTanggal = document.getElementById("filter-tanggal").value;
     const fJam = document.getElementById("filter-jam").value.toLowerCase();
     const fKegiatan = document.getElementById("filter-kegiatan").value.toLowerCase();
@@ -562,7 +669,6 @@ window.applyFilters = () => {
     const fStatus = document.getElementById("filter-status").value.toLowerCase();
     const fAdmin = document.getElementById("filter-admin").value.toLowerCase();
 
-    // Saring data
     filteredRekapData = allRekapData.filter(d => {
         const matchTanggal = !fTanggal || d.tanggal === fTanggal; 
         const matchJam = !fJam || (d.waktu && d.waktu.toLowerCase().includes(fJam));
@@ -576,11 +682,9 @@ window.applyFilters = () => {
         return matchTanggal && matchJam && matchKegiatan && matchTahap && matchNama && matchZona && matchStatus && matchAdmin;
     });
 
-    // Gambar ulang tabelnya
     drawRekapTable(filteredRekapData);
 };
 
-// Fungsi Menggambar Tabel
 function drawRekapTable(data) {
     const tbody = document.getElementById("body-rekap");
     tbody.innerHTML = "";
@@ -609,7 +713,6 @@ function drawRekapTable(data) {
     });
 }
 
-// Tombol Reset Filter
 window.resetFilters = () => {
     document.getElementById("filter-tanggal").value = "";
     document.getElementById("filter-jam").value = "";
@@ -620,10 +723,9 @@ window.resetFilters = () => {
     document.getElementById("filter-status").value = "";
     document.getElementById("filter-admin").value = "";
     
-    window.applyFilters(); // Jalankan filter ulang (akan menampilkan semua data)
+    window.applyFilters(); 
 };
 
-// Export ke Excel (KINI MENGIKUTI HASIL FILTER!)
 window.exportRekapToExcel = async () => {
     try {
         if (filteredRekapData.length === 0) return alert("Peringatan: Tidak ada data hasil filter yang bisa di-export!");
@@ -631,7 +733,6 @@ window.exportRekapToExcel = async () => {
         const btn = document.querySelector("#page-rekap .btn-secondary");
         btn.innerText = "Mengekspor...";
 
-        // Kita gunakan 'filteredRekapData' alih-alih mengambil data dari awal
         let dataExport = filteredRekapData.map((d, index) => ({
             "No": index + 1, 
             "Hari": d.hariStr, 
@@ -647,7 +748,7 @@ window.exportRekapToExcel = async () => {
 
         const ws = XLSX.utils.json_to_sheet(dataExport);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb,     ws, "Rekap Absensi");
+        XLSX.utils.book_append_sheet(wb, ws, "Rekap Absensi");
         XLSX.writeFile(wb, "Rekap_EduAbsen_Filtered.xlsx");
         
         btn.innerText = "Export ke Excel (Sesuai Filter)";
