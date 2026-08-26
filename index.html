@@ -7,11 +7,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     
-    <!-- CSS SNIPER: Memaksa menu login lenyap 100% saat disembunyikan -->
+    <!-- CSS SNIPER & FILTER STYLING -->
     <style>
         .hidden { display: none !important; }
         #login-section.hidden { display: none !important; }
         #login-section[style*="display: none"] { display: none !important; }
+        
+        .filter-input { 
+            width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; 
+            border-radius: 6px; font-family: 'Poppins', sans-serif; 
+            font-size: 0.85rem; box-sizing: border-box; outline: none; transition: 0.2s;
+        }
+        .filter-input:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2); }
+        .filter-label { font-size: 0.75rem; font-weight: 600; color: #6b7280; display: block; margin-bottom: 4px; }
     </style>
     
     <!-- Libraries -->
@@ -191,12 +199,62 @@
                 <div class="stats-grid" id="zona-grid"></div>
             </div>
             
-            <!-- REKAP -->
+            <!-- REKAP (DENGAN SISTEM FILTER) -->
             <div id="page-rekap" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Rekap Seluruh Kehadiran</h3>
-                    <button class="btn-secondary" onclick="exportRekapToExcel()">Export ke Excel</button>
+                    <button class="btn-secondary" onclick="exportRekapToExcel()">Export ke Excel (Sesuai Filter)</button>
                 </div>
+                
+                <!-- BARIS FILTER DINAMIS -->
+                <div style="background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; align-items: end; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <div>
+                        <span class="filter-label">Tanggal</span>
+                        <input type="date" id="filter-tanggal" class="filter-input" onchange="applyFilters()">
+                    </div>
+                    <div>
+                        <span class="filter-label">Jam</span>
+                        <input type="text" id="filter-jam" class="filter-input" placeholder="Cth: 20:..." oninput="applyFilters()">
+                    </div>
+                    <div>
+                        <span class="filter-label">Kegiatan</span>
+                        <input type="text" id="filter-kegiatan" class="filter-input" placeholder="Ketik kegiatan..." oninput="applyFilters()">
+                    </div>
+                    <div>
+                        <span class="filter-label">Tahap</span>
+                        <select id="filter-tahap" class="filter-input" onchange="applyFilters()">
+                            <option value="">Semua Tahap</option>
+                            <option value="Sesi Tunggal">Tunggal</option>
+                            <option value="Qobliyah">Qobliyah</option>
+                            <option value="Bakdiyah">Bakdiyah</option>
+                        </select>
+                    </div>
+                    <div>
+                        <span class="filter-label">Nama Guru</span>
+                        <input type="text" id="filter-nama" class="filter-input" placeholder="Ketik nama..." oninput="applyFilters()">
+                    </div>
+                    <div>
+                        <span class="filter-label">Zona</span>
+                        <input type="text" id="filter-zona" class="filter-input" placeholder="Ketik zona..." oninput="applyFilters()">
+                    </div>
+                    <div>
+                        <span class="filter-label">Status</span>
+                        <select id="filter-status" class="filter-input" onchange="applyFilters()">
+                            <option value="">Semua Status</option>
+                            <option value="Tepat Waktu">Tepat Waktu</option>
+                            <option value="Terlambat">Terlambat</option>
+                            <option value="Tidak Hadir">Tidak Hadir</option>
+                        </select>
+                    </div>
+                    <div>
+                        <span class="filter-label">Admin PJ</span>
+                        <input type="text" id="filter-admin" class="filter-input" placeholder="Ketik admin..." oninput="applyFilters()">
+                    </div>
+                    <div>
+                        <button class="btn-outline" onclick="resetFilters()" style="width: 100%; padding: 8px; font-size: 0.85rem; border-color:#dc2626; color:#dc2626;">Reset</button>
+                    </div>
+                </div>
+
                 <div class="table-responsive">
                     <table id="tabel-rekap">
                         <thead>
