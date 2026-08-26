@@ -338,4 +338,344 @@
 
     <script type="module" src="app.js"></script>
 </body>
+</html><!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi Guru Belajar Malam</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    
+    <style>
+        .hidden { display: none !important; }
+        #login-section.hidden { display: none !important; }
+        #login-section[style*="display: none"] { display: none !important; }
+        
+        .filter-input { 
+            width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; 
+            border-radius: 6px; font-family: 'Poppins', sans-serif; 
+            font-size: 0.85rem; box-sizing: border-box; outline: none; transition: 0.2s;
+        }
+        .filter-input:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2); }
+        .filter-label { font-size: 0.75rem; font-weight: 600; color: #6b7280; display: block; margin-bottom: 4px; }
+        
+        /* MODAL STYLES UNTUK POP-UP UBAH STATUS */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+            z-index: 9999; backdrop-filter: blur(3px);
+        }
+        .modal-content {
+            background: #fff; padding: 25px; border-radius: 12px; width: 90%; max-width: 380px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: popIn 0.25s ease-out;
+        }
+        @keyframes popIn {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+    </style>
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <section id="login-section" class="screen active">
+        <div class="login-card">
+            <div class="logo-area">
+                <span class="logo-icon">📚</span>
+                <h2>EduAbsen</h2>
+            </div>
+            <h3>Selamat Datang</h3>
+            <p>Sistem Absensi Belajar Malam</p>
+            <form id="login-form">
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="email" required placeholder="email@contoh.com">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input type="password" id="password" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn-primary">Masuk ke Sistem</button>
+                <div id="login-error" class="error-msg"></div>
+            </form>
+        </div>
+    </section>
+
+    <!-- MAIN APP LAYOUT -->
+    <section id="app-section" class="screen hidden">
+        <nav class="navbar">
+            <div class="logo-area">
+                <span class="logo-icon">📚</span>
+                <span class="logo-text">EduAbsen</span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#" onclick="navigate('dashboard')">Dashboard</a></li>
+                <li><a href="#" onclick="navigate('scan')">Scan Barcode</a></li>
+                <li class="admin-only hidden"><a href="#" onclick="navigate('guru')">Data Guru</a></li>
+                <li class="admin-only hidden"><a href="#" onclick="navigate('zona')">Manajemen Zona</a></li>
+                <li class="admin-only hidden"><a href="#" onclick="navigate('rekap')">Rekap</a></li>
+                <li class="super-admin-only hidden"><a href="#" onclick="navigate('setting')">Setting</a></li>
+            </ul>
+            <div class="user-profile">
+                <span id="user-name-display">Nama Guru</span>
+                <button class="btn-outline" onclick="logout()">Logout</button>
+            </div>
+        </nav>
+
+        <main class="container">
+            <!-- DASHBOARD -->
+            <div id="page-dashboard" class="page active">
+                <div class="hero-header">
+                    <div>
+                        <h1>Halo, <span id="welcome-name">Guru</span>! 👋</h1>
+                        <p>Ringkasan kehadiran kegiatan hari ini.</p>
+                    </div>
+                    <div class="real-time-clock">
+                        <h2 id="current-time">00:00:00 WIB</h2>
+                        <p id="current-date">Tanggal</p>
+                    </div>
+                </div>
+
+                <!-- MANAJEMEN SESI -->
+                <div class="content-section admin-only hidden" style="background: #fdfdfd; border: 1px solid #eee;">
+                    <div class="section-header">
+                        <h3>Kontrol Sesi Absensi</h3>
+                    </div>
+                    
+                    <div id="form-buka-sesi" style="display: grid; grid-template-columns: 1.5fr 1.5fr 1fr auto; gap: 15px; align-items: end; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); overflow-x: auto;">
+                        <div class="input-group" style="margin-bottom: 0; min-width: 150px;">
+                            <label>Nama Kegiatan</label>
+                            <input type="text" id="input-nama-kegiatan" placeholder="Cth: Belajar Malam">
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0; min-width: 150px;">
+                            <label>Tahap Absensi</label>
+                            <select id="input-tipe-sesi" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif;">
+                                <option value="Sesi Tunggal">Sesi Tunggal</option>
+                                <option value="Qobliyah (Kedatangan)">Qobliyah (Kedatangan)</option>
+                                <option value="Bakdiyah (Kepulangan)">Bakdiyah (Kepulangan)</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0; min-width: 120px;">
+                            <label>Batas Jam</label>
+                            <input type="time" id="input-batas-jam">
+                        </div>
+                        <button class="btn-primary" onclick="mulaiSesi()" style="padding: 12px 24px; white-space: nowrap;">Mulai Absensi</button>
+                    </div>
+
+                    <div id="info-sesi-aktif" class="hidden" style="background: var(--primary-light); padding: 20px; border-radius: 12px; border-left: 5px solid var(--primary); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                        <div>
+                            <h4 style="color: var(--primary); margin-bottom: 5px; font-size: 1.1rem;">Kegiatan Aktif: <strong id="lbl-nama-kegiatan"></strong> <span id="lbl-tipe-sesi" style="font-size: 0.85rem; background: #fff; color: var(--primary); padding: 2px 8px; border-radius: 12px; margin-left: 8px;"></span></h4>
+                            <p style="margin: 0; font-size: 0.9rem; color: #555;">
+                                Batas Waktu: <strong id="lbl-batas-jam"></strong> WIB | Admin PJ: <strong id="lbl-admin-sesi"></strong>
+                            </p>
+                        </div>
+                        <button class="btn-danger" onclick="tutupSesi()">Tutup Sesi Ini</button>
+                    </div>
+                </div>
+
+                <div class="stats-grid admin-only hidden">
+                    <div class="stat-card"><div class="stat-title">Total Guru</div><div class="stat-value" id="stat-total">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Sudah Hadir</div><div class="stat-value text-primary" id="stat-hadir">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Belum Hadir</div><div class="stat-value text-muted" id="stat-belum">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Tepat Waktu</div><div class="stat-value text-success" id="stat-tepat">0</div></div>
+                    <div class="stat-card"><div class="stat-title">Terlambat</div><div class="stat-value text-danger" id="stat-terlambat">0</div></div>
+                </div>
+
+                <div class="content-section">
+                    <div class="section-header">
+                        <h3>Kehadiran Terbaru <span id="lbl-status-sesi-guru" style="font-size: 0.9rem; font-weight:normal; padding: 3px 8px; border-radius:4px; margin-left: 10px;"></span></h3>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="recent-attendance-table">
+                            <thead>
+                                <tr><th>Nama</th><th>Zona</th><th>Waktu</th><th>Status</th></tr>
+                            </thead>
+                            <tbody id="recent-attendance-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCAN BARCODE -->
+            <div id="page-scan" class="page hidden">
+                <div class="scan-container">
+                    <div class="scan-card">
+                        <div class="scan-header">
+                            <h2 id="scan-title">Scan Barcode</h2>
+                            <p id="scan-desc">Arahkan kamera ke QR Code.</p>
+                        </div>
+                        
+                        <div id="admin-zone-selector" class="hidden" style="margin-bottom: 20px; text-align: left;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Pilih Zona Anda Bertugas:</label>
+                            <select id="pic-zone-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif;">
+                            </select>
+                        </div>
+
+                        <div id="reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
+                        <button id="btn-start-scan" class="btn-primary" onclick="startScanner()">Mulai Scan</button>
+                        <div id="scan-result" class="scan-result hidden"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DATA GURU -->
+            <div id="page-guru" class="page hidden admin-only">
+                <div class="section-header flex-between">
+                    <h3>Data Master Guru</h3>
+                    <div class="action-buttons">
+                        <button class="btn-outline" onclick="downloadTemplate()">Unduh Template Excel</button>
+                        <button class="btn-primary" onclick="document.getElementById('excel-upload').click()">Import Excel</button>
+                        <input type="file" id="excel-upload" class="hidden" accept=".xlsx, .xls" onchange="handleExcelImport(event)">
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table id="tabel-guru">
+                        <thead>
+                            <tr><th>No</th><th>Barcode</th><th>Nama</th><th>Tahun</th><th>Daerah</th><th>Kamar</th><th>Study</th><th>No HP</th><th>Zona</th><th style="min-width: 80px;">Aksi</th></tr>
+                        </thead>
+                        <tbody id="body-guru"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- MANAJEMEN ZONA -->
+            <div id="page-zona" class="page hidden admin-only">
+                <div class="section-header flex-between">
+                    <h3>Manajemen Zona Belajar</h3>
+                    <button class="btn-outline" onclick="window.print()">Print Semua QR</button>
+                </div>
+                <div class="stats-grid" id="zona-grid"></div>
+            </div>
+            
+            <!-- REKAP -->
+            <div id="page-rekap" class="page hidden admin-only">
+                <div class="section-header flex-between">
+                    <h3>Rekap Seluruh Kehadiran</h3>
+                    <button class="btn-secondary" onclick="exportRekapToExcel()">Export ke Excel (Sesuai Filter)</button>
+                </div>
+                
+                <div style="background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; align-items: end; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <div><span class="filter-label">Tanggal</span><input type="date" id="filter-tanggal" class="filter-input" onchange="applyFilters()"></div>
+                    <div><span class="filter-label">Jam</span><input type="text" id="filter-jam" class="filter-input" placeholder="Cth: 20:..." oninput="applyFilters()"></div>
+                    <div><span class="filter-label">Kegiatan</span><input type="text" id="filter-kegiatan" class="filter-input" placeholder="Ketik kegiatan..." oninput="applyFilters()"></div>
+                    <div>
+                        <span class="filter-label">Tahap</span>
+                        <select id="filter-tahap" class="filter-input" onchange="applyFilters()">
+                            <option value="">Semua Tahap</option>
+                            <option value="Sesi Tunggal">Tunggal</option>
+                            <option value="Qobliyah">Qobliyah</option>
+                            <option value="Bakdiyah">Bakdiyah</option>
+                        </select>
+                    </div>
+                    <div><span class="filter-label">Nama Guru</span><input type="text" id="filter-nama" class="filter-input" placeholder="Ketik nama..." oninput="applyFilters()"></div>
+                    <div><span class="filter-label">Zona</span><input type="text" id="filter-zona" class="filter-input" placeholder="Ketik zona..." oninput="applyFilters()"></div>
+                    <div>
+                        <span class="filter-label">Status</span>
+                        <select id="filter-status" class="filter-input" onchange="applyFilters()">
+                            <option value="">Semua Status</option>
+                            <option value="Tepat Waktu">Tepat Waktu</option>
+                            <option value="Terlambat">Terlambat</option>
+                            <option value="Izin">Izin</option>
+                            <option value="Sakit">Sakit</option>
+                            <option value="Tidak Hadir">Tidak Hadir</option>
+                        </select>
+                    </div>
+                    <div><span class="filter-label">Admin PJ</span><input type="text" id="filter-admin" class="filter-input" placeholder="Ketik admin..." oninput="applyFilters()"></div>
+                    <div><button class="btn-outline" onclick="resetFilters()" style="width: 100%; padding: 8px; font-size: 0.85rem; border-color:#dc2626; color:#dc2626;">Reset</button></div>
+                </div>
+
+                <div class="table-responsive">
+                    <table id="tabel-rekap">
+                        <thead>
+                            <tr>
+                                <th>Hari, Tanggal</th><th>Jam</th><th>Kegiatan</th><th>Tahap</th><th>Nama Guru</th><th>Zona</th><th>Status</th><th>Admin PJ</th><th style="min-width: 90px;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="body-rekap"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SETTING -->
+            <div id="page-setting" class="page hidden super-admin-only">
+                <div class="section-header">
+                    <h3>Pengaturan Sistem & Hak Akses</h3>
+                </div>
+                
+                <div class="content-section" style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #eee;">
+                    <h4>Tambah Admin Baru</h4>
+                    <p style="font-size: 0.9rem; color: #666; margin-bottom: 15px;">Berikan hak akses admin kepada staf atau guru. Password login default mereka adalah: <strong>2026</strong></p>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 15px; align-items: end;">
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label>Nama Admin (Untuk Laporan)</label>
+                            <input type="text" id="input-new-admin-nama" placeholder="Cth: Ustadz Hasan...">
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label>Email Akses Login</label>
+                            <input type="email" id="input-new-admin" placeholder="email@contoh.com">
+                        </div>
+                        <button class="btn-primary" onclick="tambahAdmin()" style="padding: 12px 24px;">Tambah Admin</button>
+                    </div>
+
+                    <hr style="margin: 30px 0; border-top: 1px solid #eee;">
+                    
+                    <h4>Daftar Admin Terdaftar</h4>
+                    <div class="table-responsive" style="margin-top: 15px;">
+                        <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid #eee;">
+                                    <th style="padding: 10px;">Nama</th>
+                                    <th style="padding: 10px;">Email</th>
+                                    <th style="padding: 10px;">Role</th>
+                                    <th style="padding: 10px; min-width: 120px;">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="body-daftar-admin">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </section>
+
+    <!-- POP-UP MODAL UBAH STATUS (TIDAK PERLU KETIK MANUAL LAGI) -->
+    <div id="modal-status" class="modal hidden">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 5px; color: #1f2937;">Ubah Status Kehadiran</h3>
+            <p id="modal-status-name" style="font-size: 0.85rem; color: #6b7280; margin-bottom: 20px; line-height: 1.4;"></p>
+            
+            <div class="input-group">
+                <label>Pilih Status Baru:</label>
+                <select id="modal-status-select" class="filter-input" style="font-size: 1rem; padding: 10px;" onchange="onStatusSelectChange()">
+                    <option value="Tepat Waktu">Tepat Waktu</option>
+                    <option value="Terlambat">Terlambat</option>
+                    <option value="Izin">Izin</option>
+                    <option value="Sakit">Sakit</option>
+                    <option value="Tidak Hadir">Tidak Hadir (Hapus Riwayat)</option>
+                </select>
+            </div>
+            
+            <div id="modal-status-time-group" class="input-group">
+                <label>Jam Kehadiran/Konfirmasi:</label>
+                <input type="time" id="modal-status-time" class="filter-input" style="font-size: 1rem; padding: 10px;">
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="btn-outline" onclick="closeModalStatus()" style="flex: 1; padding: 10px;">Batal</button>
+                <button class="btn-primary" id="btn-simpan-status" onclick="simpanStatusBaru()" style="flex: 1; padding: 10px;">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
 </html>
