@@ -45,8 +45,16 @@ async function checkLoginStatus() {
     if (loggedInUser) {
         currentUserData = JSON.parse(loggedInUser);
         
-        document.getElementById("login-section").classList.add("hidden");
-        document.getElementById("app-section").classList.remove("hidden");
+        // BUG FIX ABSOLUTE: Paksa menu login lenyap menggunakan flag !important
+        const loginSec = document.getElementById("login-section");
+        loginSec.classList.remove("active");
+        loginSec.classList.add("hidden");
+        loginSec.style.setProperty("display", "none", "important"); // Lapis kedua pelindung
+
+        const appSec = document.getElementById("app-section");
+        appSec.classList.remove("hidden");
+        appSec.style.setProperty("display", "block", "important");
+
         document.getElementById("user-name-display").innerText = currentUserData.nama;
         document.getElementById("welcome-name").innerText = currentUserData.nama;
 
@@ -67,8 +75,13 @@ async function checkLoginStatus() {
         listenToActiveSession(); 
         window.navigate('dashboard');
     } else {
-        document.getElementById("login-section").classList.remove("hidden");
-        document.getElementById("app-section").classList.add("hidden");
+        const loginSec = document.getElementById("login-section");
+        loginSec.classList.remove("hidden");
+        loginSec.style.setProperty("display", "flex", "important");
+        
+        const appSec = document.getElementById("app-section");
+        appSec.classList.add("hidden");
+        appSec.style.setProperty("display", "none", "important");
     }
 }
 
@@ -93,7 +106,8 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
                 const qAdmin = query(collection(db, "admins"), where("email", "==", email));
                 const adminSnap = await getDocs(qAdmin);
                 if (!adminSnap.empty) {
-                    const userData = { uid: "ADM-STAFF", nama: "Admin Penanggung Jawab", email: email, role: "ADMIN" };
+                    const adminData = adminSnap.docs[0].data();
+                    const userData = { uid: "ADM-STAFF", nama: adminData.nama || "Admin Staff", email: email, role: "ADMIN" };
                     sessionStorage.setItem("mockUser", JSON.stringify(userData));
                     btnSubmit.innerText = "Masuk ke Sistem"; btnSubmit.disabled = false;
                     checkLoginStatus(); return;
@@ -172,11 +186,14 @@ async function setupScannerUI() {
     }
 }
 
-// --- 3. FITUR TAMBAH ADMIN ---
+// --- 3. FITUR TAMBAH ADMIN DENGAN NAMA ---
 window.tambahAdmin = async () => {
     if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak!");
+    
+    const namaBaru = document.getElementById("input-new-admin-nama").value.trim();
     const emailBaru = document.getElementById("input-new-admin").value.trim();
-    if(!emailBaru) return alert("Email tidak boleh kosong!");
+    
+    if(!namaBaru || !emailBaru) return alert("Nama dan Email tidak boleh kosong!");
     if(emailBaru === "zhelaal.one@gmail.com") return alert("Email ini otomatis sudah menjadi Super Admin!");
 
     document.querySelector("#page-setting .btn-primary").innerText = "Menyimpan...";
@@ -188,8 +205,10 @@ window.tambahAdmin = async () => {
             return alert("Gagal: Email ini sudah terdaftar sebagai Admin!");
         }
 
-        await addDoc(collection(db, "admins"), { email: emailBaru, role: "ADMIN", timestamp: new Date() });
-        alert(`SUKSES! Admin dengan email ${emailBaru} berhasil ditambahkan.`);
+        await addDoc(collection(db, "admins"), { nama: namaBaru, email: emailBaru, role: "ADMIN", timestamp: new Date() });
+        alert(`SUKSES! Admin ${namaBaru} (${emailBaru}) berhasil ditambahkan.\nInformasikan ke mereka untuk login dengan Password: 2026`);
+        
+        document.getElementById("input-new-admin-nama").value = "";
         document.getElementById("input-new-admin").value = "";
         renderDaftarAdmin(); 
     } catch (error) { alert("Gagal menambah admin: " + error.message); }
@@ -198,11 +217,12 @@ window.tambahAdmin = async () => {
 
 async function renderDaftarAdmin() {
     const tbody = document.getElementById("body-daftar-admin");
-    tbody.innerHTML = `<tr><td style="padding: 10px;">zhelaal.one@gmail.com</td><td style="padding: 10px;"><span class="badge badge-tepat" style="background:#4f46e5; color:#fff;">Super Admin (Developer)</span></td></tr>`;
+    tbody.innerHTML = `<tr><td style="padding: 10px;"><strong>Zhela (Super Admin)</strong></td><td style="padding: 10px;">zhelaal.one@gmail.com</td><td style="padding: 10px;"><span class="badge badge-tepat" style="background:#4f46e5; color:#fff;">Developer</span></td></tr>`;
     try {
         const snap = await getDocs(collection(db, "admins"));
         snap.forEach(doc => {
-            tbody.innerHTML += `<tr><td style="padding: 10px;">${doc.data().email}</td><td style="padding: 10px;"><span class="badge" style="background:#eef2ff; color:#4f46e5;">Admin Staff</span></td></tr>`;
+            let data = doc.data();
+            tbody.innerHTML += `<tr><td style="padding: 10px;"><strong>${data.nama || "Admin Staff"}</strong></td><td style="padding: 10px;">${data.email}</td><td style="padding: 10px;"><span class="badge" style="background:#eef2ff; color:#4f46e5;">Admin Staff</span></td></tr>`;
         });
     } catch (error) { console.error(error); }
 }
@@ -282,13 +302,11 @@ function initDashboardRealtime() {
         return;
     }
 
-    // Ambil semua absen di tanggal yang sama untuk efisiensi index Firestore
     const q = query(collection(db, "attendance"), where("tanggal", "==", activeSessionData.tanggal));
     unsubscribeDashboard = onSnapshot(q, async (snapshot) => {
         let todaysData = [];
         snapshot.forEach(doc => {
             let d = doc.data();
-            // Filter hanya tampilkan data untuk "Kegiatan" dan "Tahap" yang sedang berjalan saat ini
             if(d.namaKegiatan === activeSessionData.namaKegiatan && d.tipeSesi === activeSessionData.tipeSesi) {
                 todaysData.push(d);
             }
