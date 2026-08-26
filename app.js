@@ -1,5 +1,5 @@
 // ==========================================
-// SISTEM ABSENSI HYBRID + FIREBASE + QOBLIYAH/BAKDIYAH FLEXIBLE
+// SISTEM ABSENSI HYBRID + FIREBASE + QOBLIYAH/BAKDIYAH + LIVE FILTER
 // ==========================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
@@ -23,6 +23,10 @@ let unsubscribeDashboard = null;
 let unsubscribeSession = null;
 let activeSessionData = null; 
 
+// Variabel Global Penyimpan Data Rekap untuk Filtering
+let allRekapData = []; 
+let filteredRekapData = [];
+
 const DEFAULT_ZONES = [
     { id: "G_RIYADH", nama: "Gedung Riyadh", kode: "QR_G_RIYADH" },
     { id: "G_MADINAH", nama: "Gedung Madinah", kode: "QR_G_MADINAH" },
@@ -45,11 +49,10 @@ async function checkLoginStatus() {
     if (loggedInUser) {
         currentUserData = JSON.parse(loggedInUser);
         
-        // BUG FIX ABSOLUTE: Paksa menu login lenyap menggunakan flag !important
         const loginSec = document.getElementById("login-section");
         loginSec.classList.remove("active");
         loginSec.classList.add("hidden");
-        loginSec.style.setProperty("display", "none", "important"); // Lapis kedua pelindung
+        loginSec.style.setProperty("display", "none", "important"); 
 
         const appSec = document.getElementById("app-section");
         appSec.classList.remove("hidden");
@@ -186,7 +189,7 @@ async function setupScannerUI() {
     }
 }
 
-// --- 3. FITUR TAMBAH ADMIN DENGAN NAMA ---
+// --- 3. FITUR TAMBAH ADMIN ---
 window.tambahAdmin = async () => {
     if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak!");
     
@@ -227,7 +230,7 @@ async function renderDaftarAdmin() {
     } catch (error) { console.error(error); }
 }
 
-// --- 4. MANAJEMEN SESI (KEGIATAN & TAHAP) ---
+// --- 4. MANAJEMEN SESI ---
 function listenToActiveSession() {
     unsubscribeSession = onSnapshot(doc(db, "settings", "current_session"), (docSnap) => {
         const statusSesiGuru = document.getElementById("lbl-status-sesi-guru");
@@ -341,7 +344,7 @@ function initDashboardRealtime() {
     });
 }
 
-// --- 6. LOGIKA HYBRID SCANNER (CLOUD) ---
+// --- 6. LOGIKA HYBRID SCANNER ---
 window.startScanner = async () => {
     if (!activeSessionData) return alert("GAGAL: Admin belum memulai sesi absensi apapun!");
     document.getElementById("btn-start-scan").classList.add("hidden");
@@ -393,7 +396,6 @@ async function prosesHasilScan(scannedText) {
         const hariIndo = now.toLocaleDateString('id-ID', { weekday: 'long' });
         const tanggalIndo = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-        // CEK ABSEN GANDA: Tanggal sama + Email sama + Kegiatan sama + Tahap Sama
         const qCek = query(collection(db, "attendance"), where("tanggal", "==", tanggalSQL), where("email", "==", emailGuru));
         const cekSnap = await getDocs(qCek);
         let sudahAbsen = false;
@@ -418,7 +420,7 @@ async function prosesHasilScan(scannedText) {
     } catch (error) { alert("Terjadi kesalahan jaringan: " + error.message); }
 }
 
-// --- 7. DATA GURU (IMPORT) & REKAP ---
+// --- 7. DATA GURU (IMPORT) & ZONA ---
 window.downloadTemplate = () => {
     const templateData = [{"No": 1, "Barcode": "187643", "Nama": "Raihan", "Tahun": "Thn 6", "Daerah": "Bima", "Kamar": "Panjimas", "Study": "Ilmu Qur'an Tafsir", "No HP": "08123456789", "Zona": "Gedung Riyadh", "Email": "ahmad.faizan@eduabsen.com"}];
     const ws = XLSX.utils.json_to_sheet(templateData);
@@ -490,43 +492,169 @@ async function renderManajemenZona() {
     }, 100);
 }
 
-// FUNGSI REKAP
+
+// --- 8. FUNGSI LOGIKA REKAP OTOMATIS & LIVE FILTER ---
+async function getRekapWithAbsentees() {
+    const attSnap = await getDocs(collection(db, "attendance"));
+    const guruSnap = await getDocs(collection(db, "guru"));
+
+    let allGuru = [];
+    guruSnap.forEach(doc => allGuru.push(doc.data()));
+
+    let dataRekap = [];
+    let uniqueSessions = {}; 
+
+    attSnap.forEach(doc => {
+        let d = doc.data();
+        dataRekap.push(d);
+        
+        let sessionKey = `${d.tanggal}_${d.namaKegiatan}_${d.tipeSesi}`;
+        if (!uniqueSessions[sessionKey]) {
+            uniqueSessions[sessionKey] = {
+                tanggal: d.tanggal, hariStr: d.hariStr, tanggalStr: d.tanggalStr, namaKegiatan: d.namaKegiatan,
+                tipeSesi: d.tipeSesi, adminPenanggungJawab: d.adminPenanggungJawab, timestamp: d.timestamp,
+                attendedEmails: new Set()
+            };
+        }
+        uniqueSessions[sessionKey].attendedEmails.add(d.email);
+    });
+
+    for (let key in uniqueSessions) {
+        let session = uniqueSessions[key];
+        allGuru.forEach(guru => {
+            if (!session.attendedEmails.has(guru.Email)) {
+                dataRekap.push({
+                    tanggal: session.tanggal, hariStr: session.hariStr, tanggalStr: session.tanggalStr, waktu: "-",
+                    namaKegiatan: session.namaKegiatan, tipeSesi: session.tipeSesi, namaGuru: guru.Nama, namaZona: guru.Zona || "-",
+                    status: "Tidak Hadir", adminPenanggungJawab: session.adminPenanggungJawab, timestamp: session.timestamp - 1 
+                });
+            }
+        });
+    }
+
+    dataRekap.sort((a, b) => b.timestamp - a.timestamp);
+    return dataRekap;
+}
+
+// Fungsi utama pemanggilan data rekap
 async function renderRekap() {
     const tbody = document.getElementById("body-rekap");
-    tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>Memuat riwayat dari server Cloud...</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>Mengkalkulasi kehadiran dan alpa dari server...</td></tr>";
     try {
-        const snap = await getDocs(collection(db, "attendance"));
-        let dataRekap = [];
-        snap.forEach(doc => dataRekap.push(doc.data()));
-        dataRekap.sort((a, b) => b.timestamp - a.timestamp);
+        allRekapData = await getRekapWithAbsentees();
+        filteredRekapData = [...allRekapData]; // Salin ke data yang akan difilter
         
-        tbody.innerHTML = "";
-        if (dataRekap.length === 0) return tbody.innerHTML = "<tr><td colspan='8' style='text-align:center;'>Belum ada riwayat absen.</td></tr>";
-
-        dataRekap.forEach(d => {
-            tbody.innerHTML += `<tr><td><strong>${d.hariStr}</strong>, ${d.tanggalStr}</td><td>${d.waktu}</td><td><strong>${d.namaKegiatan}</strong></td><td><span style="background:#eef2ff; color:#4f46e5; padding:3px 8px; border-radius:4px; font-size:0.85rem;">${d.tipeSesi}</span></td><td><strong>${d.namaGuru}</strong></td><td>${d.namaZona}</td><td><span class="badge ${d.status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${d.status}</span></td><td>${d.adminPenanggungJawab}</td></tr>`;
-        });
+        window.applyFilters(); // Panggil fungsi filter (otomatis menggambar tabel)
     } catch (error) {
         tbody.innerHTML = `<tr><td colspan='8' style='text-align:center; color:red;'>Gagal memuat: ${error.message}</td></tr>`;
     }
 }
 
+// Fungsi Live Filter
+window.applyFilters = () => {
+    // Ambil nilai dari semua kolom input filter
+    const fTanggal = document.getElementById("filter-tanggal").value;
+    const fJam = document.getElementById("filter-jam").value.toLowerCase();
+    const fKegiatan = document.getElementById("filter-kegiatan").value.toLowerCase();
+    const fTahap = document.getElementById("filter-tahap").value.toLowerCase();
+    const fNama = document.getElementById("filter-nama").value.toLowerCase();
+    const fZona = document.getElementById("filter-zona").value.toLowerCase();
+    const fStatus = document.getElementById("filter-status").value.toLowerCase();
+    const fAdmin = document.getElementById("filter-admin").value.toLowerCase();
+
+    // Saring data
+    filteredRekapData = allRekapData.filter(d => {
+        const matchTanggal = !fTanggal || d.tanggal === fTanggal; 
+        const matchJam = !fJam || (d.waktu && d.waktu.toLowerCase().includes(fJam));
+        const matchKegiatan = !fKegiatan || (d.namaKegiatan && d.namaKegiatan.toLowerCase().includes(fKegiatan));
+        const matchTahap = !fTahap || (d.tipeSesi && d.tipeSesi.toLowerCase().includes(fTahap));
+        const matchNama = !fNama || (d.namaGuru && d.namaGuru.toLowerCase().includes(fNama));
+        const matchZona = !fZona || (d.namaZona && d.namaZona.toLowerCase().includes(fZona));
+        const matchStatus = !fStatus || (d.status && d.status.toLowerCase().includes(fStatus));
+        const matchAdmin = !fAdmin || (d.adminPenanggungJawab && d.adminPenanggungJawab.toLowerCase().includes(fAdmin));
+
+        return matchTanggal && matchJam && matchKegiatan && matchTahap && matchNama && matchZona && matchStatus && matchAdmin;
+    });
+
+    // Gambar ulang tabelnya
+    drawRekapTable(filteredRekapData);
+};
+
+// Fungsi Menggambar Tabel
+function drawRekapTable(data) {
+    const tbody = document.getElementById("body-rekap");
+    tbody.innerHTML = "";
+    
+    if (data.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='8' style='text-align:center; padding:20px;'>Tidak ada data yang sesuai dengan kriteria filter.</td></tr>";
+        return;
+    }
+
+    data.forEach(d => {
+        let badgeStyle = "";
+        if (d.status === 'Tepat Waktu') badgeStyle = "background:#d1fae5; color:#059669;";
+        else if (d.status === 'Terlambat') badgeStyle = "background:#ffedd5; color:#ea580c;";
+        else badgeStyle = "background:#fee2e2; color:#dc2626;"; 
+
+        tbody.innerHTML += `<tr>
+            <td><strong>${d.hariStr}</strong>, ${d.tanggalStr}</td>
+            <td>${d.waktu}</td>
+            <td><strong>${d.namaKegiatan}</strong></td>
+            <td><span style="background:#eef2ff; color:#4f46e5; padding:3px 8px; border-radius:4px; font-size:0.85rem;">${d.tipeSesi}</span></td>
+            <td><strong>${d.namaGuru}</strong></td>
+            <td>${d.namaZona}</td>
+            <td><span class="badge" style="${badgeStyle}">${d.status}</span></td>
+            <td>${d.adminPenanggungJawab}</td>
+        </tr>`;
+    });
+}
+
+// Tombol Reset Filter
+window.resetFilters = () => {
+    document.getElementById("filter-tanggal").value = "";
+    document.getElementById("filter-jam").value = "";
+    document.getElementById("filter-kegiatan").value = "";
+    document.getElementById("filter-tahap").value = "";
+    document.getElementById("filter-nama").value = "";
+    document.getElementById("filter-zona").value = "";
+    document.getElementById("filter-status").value = "";
+    document.getElementById("filter-admin").value = "";
+    
+    window.applyFilters(); // Jalankan filter ulang (akan menampilkan semua data)
+};
+
+// Export ke Excel (KINI MENGIKUTI HASIL FILTER!)
 window.exportRekapToExcel = async () => {
     try {
-        const snap = await getDocs(collection(db, "attendance"));
-        let dataRekap = [];
-        snap.forEach(doc => dataRekap.push(doc.data()));
-        dataRekap.sort((a, b) => b.timestamp - a.timestamp); 
+        if (filteredRekapData.length === 0) return alert("Peringatan: Tidak ada data hasil filter yang bisa di-export!");
+        
+        const btn = document.querySelector("#page-rekap .btn-secondary");
+        btn.innerText = "Mengekspor...";
 
-        let dataExport = dataRekap.map((d, index) => ({
-            "No": index + 1, "Hari": d.hariStr, "Tanggal": d.tanggalStr, "Jam Absen": d.waktu, "Nama Kegiatan": d.namaKegiatan, "Tahap Absensi": d.tipeSesi, "Nama Guru": d.namaGuru, "Zona": d.namaZona, "Status": d.status, "Admin Bertugas": d.adminPenanggungJawab
+        // Kita gunakan 'filteredRekapData' alih-alih mengambil data dari awal
+        let dataExport = filteredRekapData.map((d, index) => ({
+            "No": index + 1, 
+            "Hari": d.hariStr, 
+            "Tanggal": d.tanggalStr, 
+            "Jam Absen": d.waktu, 
+            "Nama Kegiatan": d.namaKegiatan, 
+            "Tahap Absensi": d.tipeSesi, 
+            "Nama Guru": d.namaGuru, 
+            "Zona": d.namaZona, 
+            "Status": d.status, 
+            "Admin Bertugas": d.adminPenanggungJawab
         }));
 
         const ws = XLSX.utils.json_to_sheet(dataExport);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Rekap Absensi");
-        XLSX.writeFile(wb, "Rekap_EduAbsen.xlsx");
-    } catch (error) { alert("Gagal export: " + error.message); }
+        XLSX.utils.book_append_sheet(wb,     ws, "Rekap Absensi");
+        XLSX.writeFile(wb, "Rekap_EduAbsen_Filtered.xlsx");
+        
+        btn.innerText = "Export ke Excel (Sesuai Filter)";
+    } catch (error) { 
+        alert("Gagal export: " + error.message); 
+        document.querySelector("#page-rekap .btn-secondary").innerText = "Export ke Excel (Sesuai Filter)";
+    }
 };
 
 setInterval(() => {
