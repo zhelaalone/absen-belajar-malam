@@ -96,14 +96,23 @@
                 </div>
             </div>
 
-            <!-- SCAN BARCODE -->
+            <!-- SCAN BARCODE (HYBRID) -->
             <div id="page-scan" class="page hidden">
                 <div class="scan-container">
                     <div class="scan-card">
                         <div class="scan-header">
-                            <h2>Scan Barcode Zona</h2>
-                            <p>Arahkan kamera ke QR Code yang terdapat di zona absensi Anda.</p>
+                            <h2 id="scan-title">Scan Barcode</h2>
+                            <p id="scan-desc">Arahkan kamera ke QR Code.</p>
                         </div>
+                        
+                        <!-- KHUSUS ADMIN (PENANGGUNG JAWAB ZONA) -->
+                        <div id="admin-zone-selector" class="hidden" style="margin-bottom: 20px; text-align: left;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Pilih Zona Anda Bertugas:</label>
+                            <select id="pic-zone-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif;">
+                                <!-- Option digenerate oleh JS -->
+                            </select>
+                        </div>
+
                         <div id="reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
                         <button id="btn-start-scan" class="btn-primary" onclick="startScanner()">Mulai Scan</button>
                         <div id="scan-result" class="scan-result hidden"></div>
@@ -127,7 +136,7 @@
                             <tr><th>No</th><th>Barcode</th><th>Nama</th><th>Tahun</th><th>Daerah</th><th>Kamar</th><th>Study</th><th>No HP</th><th>Zona</th></tr>
                         </thead>
                         <tbody id="body-guru">
-                            <!-- Data akan dimuat disini -->
+                            <!-- Data dimuat disini -->
                         </tbody>
                     </table>
                 </div>
@@ -140,7 +149,7 @@
                     <button class="btn-outline" onclick="window.print()">Print Semua QR</button>
                 </div>
                 <div class="stats-grid" id="zona-grid">
-                    <!-- Kartu zona akan digenerate via JS -->
+                    <!-- Kartu zona -->
                 </div>
             </div>
             
@@ -150,11 +159,10 @@
                     <h3>Rekap Kehadiran</h3>
                     <button class="btn-secondary" onclick="exportToExcel()">Export ke Excel</button>
                 </div>
-                <!-- Tabel rekap -->
             </div>
         </main>
     </section>
 
-    <script src="app.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
