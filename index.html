@@ -79,23 +79,32 @@
                         <h3>Kontrol Sesi Absensi</h3>
                     </div>
                     
-                    <div id="form-buka-sesi" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 15px; align-items: end; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-                        <div class="input-group" style="margin-bottom: 0;">
-                            <label>Nama/Tujuan Absensi</label>
-                            <input type="text" id="input-nama-sesi" placeholder="Contoh: Belajar Malam Spesial">
+                    <!-- FORM BUKA SESI (FLEXIBLE) -->
+                    <div id="form-buka-sesi" style="display: grid; grid-template-columns: 1.5fr 1.5fr 1fr auto; gap: 15px; align-items: end; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); overflow-x: auto;">
+                        <div class="input-group" style="margin-bottom: 0; min-width: 150px;">
+                            <label>Nama Kegiatan</label>
+                            <input type="text" id="input-nama-kegiatan" placeholder="Cth: Belajar Malam">
                         </div>
-                        <div class="input-group" style="margin-bottom: 0;">
-                            <label>Batas Jam (Tepat Waktu)</label>
+                        <div class="input-group" style="margin-bottom: 0; min-width: 150px;">
+                            <label>Tahap Absensi</label>
+                            <select id="input-tipe-sesi" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif;">
+                                <option value="Sesi Tunggal">Sesi Tunggal</option>
+                                <option value="Qobliyah (Kedatangan)">Qobliyah (Kedatangan)</option>
+                                <option value="Bakdiyah (Kepulangan)">Bakdiyah (Kepulangan)</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0; min-width: 120px;">
+                            <label>Batas Jam</label>
                             <input type="time" id="input-batas-jam">
                         </div>
-                        <button class="btn-primary" onclick="mulaiSesi()" style="padding: 12px 24px;">Mulai Absensi</button>
+                        <button class="btn-primary" onclick="mulaiSesi()" style="padding: 12px 24px; white-space: nowrap;">Mulai Absensi</button>
                     </div>
 
-                    <div id="info-sesi-aktif" class="hidden" style="background: var(--primary-light); padding: 20px; border-radius: 12px; border-left: 5px solid var(--primary); display: flex; justify-content: space-between; align-items: center;">
+                    <div id="info-sesi-aktif" class="hidden" style="background: var(--primary-light); padding: 20px; border-radius: 12px; border-left: 5px solid var(--primary); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                         <div>
-                            <h4 style="color: var(--primary); margin-bottom: 5px; font-size: 1.1rem;">Sesi Berjalan: <strong id="lbl-nama-sesi"></strong></h4>
+                            <h4 style="color: var(--primary); margin-bottom: 5px; font-size: 1.1rem;">Kegiatan Aktif: <strong id="lbl-nama-kegiatan"></strong> <span id="lbl-tipe-sesi" style="font-size: 0.85rem; background: #fff; color: var(--primary); padding: 2px 8px; border-radius: 12px; margin-left: 8px;"></span></h4>
                             <p style="margin: 0; font-size: 0.9rem; color: #555;">
-                                Batas Waktu: <strong id="lbl-batas-jam"></strong> WIB | Admin: <strong id="lbl-admin-sesi"></strong>
+                                Batas Waktu: <strong id="lbl-batas-jam"></strong> WIB | Admin PJ: <strong id="lbl-admin-sesi"></strong>
                             </p>
                         </div>
                         <button class="btn-danger" onclick="tutupSesi()">Tutup Sesi Ini</button>
@@ -125,7 +134,7 @@
                 </div>
             </div>
 
-            <!-- SCAN BARCODE (HYBRID) -->
+            <!-- SCAN BARCODE -->
             <div id="page-scan" class="page hidden">
                 <div class="scan-container">
                     <div class="scan-card">
@@ -188,7 +197,8 @@
                             <tr>
                                 <th>Hari, Tanggal</th>
                                 <th>Jam</th>
-                                <th>Sesi Absen</th>
+                                <th>Kegiatan</th>
+                                <th>Tahap</th>
                                 <th>Nama Guru</th>
                                 <th>Zona</th>
                                 <th>Status</th>
@@ -201,7 +211,7 @@
                 </div>
             </div>
 
-            <!-- SETTING (KHUSUS DEVELOPER) -->
+            <!-- SETTING -->
             <div id="page-setting" class="page hidden super-admin-only">
                 <div class="section-header">
                     <h3>Pengaturan Sistem & Hak Akses</h3>
@@ -209,7 +219,7 @@
                 
                 <div class="content-section" style="background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #eee;">
                     <h4>Tambah Admin Baru</h4>
-                    <p style="font-size: 0.9rem; color: #666; margin-bottom: 15px;">Admin baru akan memiliki akses ke Dashboard, Data Guru, dan Rekap. Password login default untuk semua admin adalah: <strong>2026</strong></p>
+                    <p style="font-size: 0.9rem; color: #666; margin-bottom: 15px;">Admin baru akan memiliki akses ke Dashboard, Data Guru, dan Rekap. Password login default: <strong>2026</strong></p>
                     
                     <div style="display: grid; grid-template-columns: 1fr auto; gap: 15px; align-items: end;">
                         <div class="input-group" style="margin-bottom: 0;">
