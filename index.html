@@ -19,6 +19,21 @@
         }
         .filter-input:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2); }
         .filter-label { font-size: 0.75rem; font-weight: 600; color: #6b7280; display: block; margin-bottom: 4px; }
+        
+        /* MODAL STYLES UNTUK POP-UP UBAH STATUS */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+            z-index: 9999; backdrop-filter: blur(3px);
+        }
+        .modal-content {
+            background: #fff; padding: 25px; border-radius: 12px; width: 90%; max-width: 380px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: popIn 0.25s ease-out;
+        }
+        @keyframes popIn {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
     </style>
     
     <!-- Libraries -->
@@ -169,7 +184,7 @@
                 </div>
             </div>
 
-            <!-- DATA GURU (DIPERBARUI) -->
+            <!-- DATA GURU -->
             <div id="page-guru" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Data Master Guru</h3>
@@ -226,6 +241,8 @@
                             <option value="">Semua Status</option>
                             <option value="Tepat Waktu">Tepat Waktu</option>
                             <option value="Terlambat">Terlambat</option>
+                            <option value="Izin">Izin</option>
+                            <option value="Sakit">Sakit</option>
                             <option value="Tidak Hadir">Tidak Hadir</option>
                         </select>
                     </div>
@@ -237,7 +254,7 @@
                     <table id="tabel-rekap">
                         <thead>
                             <tr>
-                                <th>Hari, Tanggal</th><th>Jam</th><th>Kegiatan</th><th>Tahap</th><th>Nama Guru</th><th>Zona</th><th>Status</th><th>Admin PJ</th>
+                                <th>Hari, Tanggal</th><th>Jam</th><th>Kegiatan</th><th>Tahap</th><th>Nama Guru</th><th>Zona</th><th>Status</th><th>Admin PJ</th><th style="min-width: 90px;">Aksi</th>
                             </tr>
                         </thead>
                         <tbody id="body-rekap"></tbody>
@@ -289,6 +306,35 @@
 
         </main>
     </section>
+
+    <!-- POP-UP MODAL UBAH STATUS (TIDAK PERLU KETIK MANUAL LAGI) -->
+    <div id="modal-status" class="modal hidden">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 5px; color: #1f2937;">Ubah Status Kehadiran</h3>
+            <p id="modal-status-name" style="font-size: 0.85rem; color: #6b7280; margin-bottom: 20px; line-height: 1.4;"></p>
+            
+            <div class="input-group">
+                <label>Pilih Status Baru:</label>
+                <select id="modal-status-select" class="filter-input" style="font-size: 1rem; padding: 10px;" onchange="onStatusSelectChange()">
+                    <option value="Tepat Waktu">Tepat Waktu</option>
+                    <option value="Terlambat">Terlambat</option>
+                    <option value="Izin">Izin</option>
+                    <option value="Sakit">Sakit</option>
+                    <option value="Tidak Hadir">Tidak Hadir (Hapus Riwayat)</option>
+                </select>
+            </div>
+            
+            <div id="modal-status-time-group" class="input-group">
+                <label>Jam Kehadiran/Konfirmasi:</label>
+                <input type="time" id="modal-status-time" class="filter-input" style="font-size: 1rem; padding: 10px;">
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="btn-outline" onclick="closeModalStatus()" style="flex: 1; padding: 10px;">Batal</button>
+                <button class="btn-primary" id="btn-simpan-status" onclick="simpanStatusBaru()" style="flex: 1; padding: 10px;">Simpan</button>
+            </div>
+        </div>
+    </div>
 
     <script type="module" src="app.js"></script>
 </body>
