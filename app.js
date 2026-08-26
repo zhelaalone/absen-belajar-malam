@@ -146,6 +146,7 @@ window.logout = () => {
     location.reload(); 
 };
 
+// --- 2. NAVIGASI ---
 window.navigate = (pageId) => {
     if (currentUserData.role !== "ADMIN" && (pageId === "guru" || pageId === "zona" || pageId === "rekap" || pageId === "setting")) return;
     if (pageId === "setting" && currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak! Hanya Developer yang bisa membuka menu ini.");
@@ -154,9 +155,9 @@ window.navigate = (pageId) => {
     const targetPage = document.getElementById(`page-${pageId}`);
     if(targetPage) targetPage.classList.remove("hidden");
     
-    if (pageId !== "scan" && html5QrcodeScanner) {
-        html5QrcodeScanner.clear(); html5QrcodeScanner = null;
-        document.getElementById("btn-start-scan").classList.remove("hidden");
+    // Hentikan kamera jika pindah halaman
+    if (pageId !== "scan" && typeof window.stopScanner === "function") {
+        window.stopScanner();
     }
 
     if (pageId === "scan") setupScannerUI();
@@ -165,6 +166,28 @@ window.navigate = (pageId) => {
     if (pageId === "dashboard") initDashboardRealtime();
     else if(unsubscribeDashboard) { unsubscribeDashboard(); unsubscribeDashboard = null; }
 };
+
+async function setupScannerUI() {
+    if (!currentUserData) return;
+    const adminSelector = document.getElementById("admin-zone-selector");
+    const scanTitle = document.getElementById("scan-title");
+    const scanDesc = document.getElementById("scan-desc");
+    
+    if (currentUserData.role === "ADMIN") {
+        adminSelector.classList.remove("hidden");
+        scanTitle.innerText = "Scan Kartu Guru (Sistem 1)";
+        scanDesc.innerText = "Pilih zona tugas Anda, lalu scan Barcode/ID Card milik guru.";
+        
+        const select = document.getElementById("pic-zone-select");
+        const zonesSnap = await getDocs(collection(db, "zones"));
+        select.innerHTML = '<option value="">-- Pilih Zona Anda Bertugas --</option>';
+        zonesSnap.forEach(doc => { select.innerHTML += `<option value="${doc.data().id}">${doc.data().nama}</option>`; });
+    } else {
+        adminSelector.classList.add("hidden");
+        scanTitle.innerText = "Scan QR Zona (Sistem 2)";
+        scanDesc.innerText = "Arahkan kamera ke QR Code yang terdapat di zona absensi Anda.";
+    }
+}
 
 async function setupScannerUI() {
     if (!currentUserData) return;
@@ -392,21 +415,142 @@ function initDashboardRealtime() {
     });
 }
 
-// --- 6. LOGIKA HYBRID SCANNER ---
+// --- 6. LOGIKA HYBRID SCANNER CONTINUOUS (TANPA HENTI) ---
+let isProcessingScan = false;
+let lastScannedText = "";
+let lastScannedTime = 0;
+
 window.startScanner = async () => {
     if (!activeSessionData) return alert("GAGAL: Admin belum memulai sesi absensi apapun!");
-    document.getElementById("btn-start-scan").classList.add("hidden");
-    document.getElementById("scan-result").classList.add("hidden"); 
     
+    if (currentUserData.role === "ADMIN") {
+        const selectedZoneId = document.getElementById("pic-zone-select").value;
+        if (!selectedZoneId) return alert("GAGAL: Pilih 'Zona Tugas Anda' terlebih dahulu!");
+    }
+
+    document.getElementById("btn-start-scan").classList.add("hidden");
+    document.getElementById("scan-result").classList.remove("hidden"); 
+    document.getElementById("scan-result").innerHTML = "<div style='text-align:center; padding:15px; color:#6b7280; font-weight:bold;'>Kamera aktif. Silakan arahkan ID Card / QR Code ke kamera...</div>";
+    
+    // Buat tombol tutup kamera jika belum ada
+    let stopBtn = document.getElementById("btn-stop-scan");
+    if(!stopBtn) {
+        stopBtn = document.createElement("button");
+        stopBtn.id = "btn-stop-scan";
+        stopBtn.className = "btn-danger";
+        stopBtn.style.marginTop = "15px";
+        stopBtn.style.width = "100%";
+        stopBtn.innerText = "Tutup Kamera Scanner";
+        stopBtn.onclick = () => window.stopScanner();
+        document.getElementById("scan-result").parentNode.insertBefore(stopBtn, document.getElementById("scan-result"));
+    }
+    stopBtn.classList.remove("hidden");
+
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
     html5QrcodeScanner.render(async (decodedText, decodedResult) => {
-        html5QrcodeScanner.clear(); 
-        document.getElementById("btn-start-scan").classList.remove("hidden");
-        document.getElementById("btn-start-scan").innerText = "Memproses...";
+        const now = Date.now();
+        
+        // MENCEGAH DOUBLE SCAN: Jeda 3 detik untuk barcode yang sama
+        if (isProcessingScan) return;
+        if (decodedText === lastScannedText && (now - lastScannedTime < 3000)) return;
+        
+        isProcessingScan = true;
+        lastScannedText = decodedText;
+        lastScannedTime = now;
+
+        // Indikator loading warna biru di bawah kamera
+        document.getElementById("scan-result").innerHTML = `<div style="background: #eef2ff; padding: 15px; border-radius: 8px; text-align: center; color: #4f46e5; margin-top:20px; font-weight:bold;">⏳ Menyimpan data absen...</div>`;
+
         await prosesHasilScan(decodedText);
-        document.getElementById("btn-start-scan").innerText = "Mulai Scan";
-    }, (errorMessage) => {});
+        
+        isProcessingScan = false; // Buka gerbang untuk scan orang selanjutnya
+    }, (errorMessage) => { /* Abaikan pesan error gagal baca cahaya */ });
 };
+
+window.stopScanner = () => {
+    if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear();
+        html5QrcodeScanner = null;
+    }
+    document.getElementById("btn-start-scan").classList.remove("hidden");
+    const stopBtn = document.getElementById("btn-stop-scan");
+    if(stopBtn) stopBtn.classList.add("hidden");
+    document.getElementById("scan-result").innerHTML = "";
+    document.getElementById("scan-result").classList.add("hidden"); 
+};
+
+async function prosesHasilScan(scannedText) {
+    let namaGuru, emailGuru, namaZona;
+    const resultDiv = document.getElementById("scan-result");
+
+    try {
+        if (currentUserData.role === "ADMIN") {
+            const selectedZoneId = document.getElementById("pic-zone-select").value;
+            const qZone = query(collection(db, "zones"), where("id", "==", selectedZoneId));
+            const zoneSnap = await getDocs(qZone);
+            
+            const qGuru = query(collection(db, "guru"), where("Barcode", "==", scannedText));
+            const guruSnap = await getDocs(qGuru);
+            
+            if(guruSnap.empty) {
+                // Tampilan merah jika barcode tidak ada di Excel
+                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode ${scannedText} tidak ada di database Guru.</p></div>`;
+                return;
+            }
+            
+            namaGuru = guruSnap.docs[0].data().Nama;
+            emailGuru = guruSnap.docs[0].data().Email;
+            namaZona = zoneSnap.docs[0].data().nama;
+        } else {
+            const qZone = query(collection(db, "zones"), where("kode", "==", scannedText));
+            const zoneSnap = await getDocs(qZone);
+            if(zoneSnap.empty) {
+                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
+                return;
+            }
+            namaGuru = currentUserData.nama;
+            emailGuru = currentUserData.email;
+            namaZona = zoneSnap.docs[0].data().nama;
+        }
+
+        const now = new Date();
+        const currentTimeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+        const status = currentTimeString <= activeSessionData.batasWaktu ? "Tepat Waktu" : "Terlambat";
+        
+        const tanggalSQL = now.toISOString().split('T')[0];
+        const hariIndo = now.toLocaleDateString('id-ID', { weekday: 'long' });
+        const tanggalIndo = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+        const qCek = query(collection(db, "attendance"), where("tanggal", "==", tanggalSQL), where("email", "==", emailGuru));
+        const cekSnap = await getDocs(qCek);
+        let sudahAbsen = false;
+        cekSnap.forEach(doc => {
+            let d = doc.data();
+            if(d.namaKegiatan === activeSessionData.namaKegiatan && d.tipeSesi === activeSessionData.tipeSesi) sudahAbsen = true;
+        });
+
+        if (sudahAbsen) {
+            // Tampilan Kuning jika guru tersebut nge-scan dua kali
+            resultDiv.innerHTML = `<div style="background:#fef3c7; padding:15px; border-radius:8px; border-left:4px solid #d97706; margin-top:20px;"><h3 style="color:#b45309; margin-bottom:5px;">⚠️ SUDAH ABSEN</h3><p style="margin:0;"><strong>${namaGuru}</strong> sudah tercatat hadir pada sesi ini. Lanjut ke peserta berikutnya.</p></div>`;
+            return;
+        }
+
+        // Simpan ke Cloud
+        await addDoc(collection(db, "attendance"), {
+            namaGuru, email: emailGuru, namaZona, waktu: currentTimeString, status, tanggal: tanggalSQL, hariStr: hariIndo, tanggalStr: tanggalIndo, 
+            namaKegiatan: activeSessionData.namaKegiatan, 
+            tipeSesi: activeSessionData.tipeSesi, 
+            adminPenanggungJawab: activeSessionData.adminNama, 
+            timestamp: now.getTime()
+        });
+
+        // Tampilan Sukses (Kamera tetap nyala di atasnya)
+        resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
+        
+    } catch (error) { 
+        resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">ERROR JARINGAN:</strong> ${error.message}</div>`;
+    }
+}
 
 async function prosesHasilScan(scannedText) {
     let namaGuru, emailGuru, namaZona;
@@ -558,17 +702,82 @@ window.handleExcelImport = (event) => {
     reader.readAsArrayBuffer(file);
 };
 
+// --- FUNGSI BARU: DOWNLOAD QR CODE GURU ---
+window.downloadQRGuru = (barcode, nama) => {
+    // 1. Buat elemen penampung sementara (tersembunyi)
+    const tempDiv = document.createElement("div");
+    tempDiv.style.display = "none";
+    document.body.appendChild(tempDiv);
+
+    // 2. Generate QR Code ke dalam penampung
+    new QRCode(tempDiv, {
+        text: barcode,
+        width: 256,
+        height: 256,
+        colorDark : "#000000",
+        colorLight : "#ffffff",
+        correctLevel : QRCode.CorrectLevel.H
+    });
+
+    // 3. Beri waktu beberapa milidetik agar gambar QR selesai dirender
+    setTimeout(() => {
+        const qrCanvas = tempDiv.querySelector("canvas");
+        if (qrCanvas) {
+            // 4. Siapkan Canvas baru untuk menggabungkan QR dan Teks
+            const finalCanvas = document.createElement("canvas");
+            finalCanvas.width = 300;
+            finalCanvas.height = 370; // Lebih tinggi untuk tempat nama
+            const ctx = finalCanvas.getContext("2d");
+
+            // Beri background putih polos
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+
+            // Tempelkan gambar QR Code di tengah atas
+            ctx.drawImage(qrCanvas, 22, 20, 256, 256);
+
+            // Tambahkan Teks Nama Guru
+            ctx.fillStyle = "#1f2937"; // Warna teks gelap
+            ctx.font = "bold 18px sans-serif";
+            ctx.textAlign = "center";
+            
+            // Potong nama jika terlalu panjang agar tidak keluar batas gambar
+            let displayName = nama.length > 25 ? nama.substring(0, 25) + "..." : nama;
+            ctx.fillText(displayName, finalCanvas.width / 2, 315);
+            
+            // Tambahkan Teks Barcode / ID di bawah nama
+            ctx.font = "14px sans-serif";
+            ctx.fillStyle = "#6b7280"; // Warna abu-abu
+            ctx.fillText("ID: " + barcode, finalCanvas.width / 2, 340);
+
+            // 5. Ubah canvas menjadi file gambar dan otomatis download
+            const link = document.createElement("a");
+            link.download = `QR_Guru_${nama.replace(/[^a-zA-Z0-9]/g, '_')}.png`; // Bersihkan nama file
+            link.href = finalCanvas.toDataURL("image/png");
+            link.click();
+        }
+        // Hapus elemen sementara agar memori bersih
+        document.body.removeChild(tempDiv);
+    }, 300);
+};
+
+// --- UPDATE TABEL GURU (MENAMBAHKAN TOMBOL DOWNLOAD QR) ---
 async function renderTabelGuru() {
     const tbody = document.getElementById("body-guru");
     tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Memuat...</td></tr>";
+    
     const guruSnap = await getDocs(collection(db, "guru"));
     tbody.innerHTML = "";
-    if (guruSnap.empty) return tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Belum ada data guru.</td></tr>";
+    
+    if (guruSnap.empty) {
+        return tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Belum ada data guru.</td></tr>";
+    }
     
     let idx = 1;
     guruSnap.forEach((doc) => {
         let guru = doc.data();
         let barcodeId = doc.id; 
+        
         tbody.innerHTML += `<tr>
             <td>${idx++}</td>
             <td>${guru.Barcode}</td>
@@ -580,7 +789,8 @@ async function renderTabelGuru() {
             <td>${guru["No HP"]}</td>
             <td>${guru.Zona}</td>
             <td>
-                <button onclick="editGuru('${barcodeId}', '${guru.Nama}', '${guru.Zona}', '${guru.Email}', '${guru.Kamar}')" style="background:#f59e0b; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:4px; display:block; width:100%;">Edit</button>
+                <button onclick="downloadQRGuru('${guru.Barcode}', '${guru.Nama}')" style="background:#10b981; color:#fff; border:none; padding:5px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:5px; display:block; width:100%; font-weight:bold;">Unduh QR</button>
+                <button onclick="editGuru('${barcodeId}', '${guru.Nama}', '${guru.Zona}', '${guru.Email}', '${guru.Kamar}')" style="background:#f59e0b; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:5px; display:block; width:100%;">Edit</button>
                 <button onclick="hapusGuru('${barcodeId}', '${guru.Nama}')" style="background:#dc2626; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; display:block; width:100%;">Hapus</button>
             </td>
         </tr>`;
