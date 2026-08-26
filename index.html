@@ -7,7 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     
-    <!-- CSS SNIPER & FILTER STYLING -->
     <style>
         .hidden { display: none !important; }
         #login-section.hidden { display: none !important; }
@@ -88,7 +87,7 @@
                     </div>
                 </div>
 
-                <!-- MANAJEMEN SESI (KHUSUS ADMIN) -->
+                <!-- MANAJEMEN SESI -->
                 <div class="content-section admin-only hidden" style="background: #fdfdfd; border: 1px solid #eee;">
                     <div class="section-header">
                         <h3>Kontrol Sesi Absensi</h3>
@@ -170,7 +169,7 @@
                 </div>
             </div>
 
-            <!-- DATA GURU -->
+            <!-- DATA GURU (DIPERBARUI) -->
             <div id="page-guru" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Data Master Guru</h3>
@@ -183,7 +182,7 @@
                 <div class="table-responsive">
                     <table id="tabel-guru">
                         <thead>
-                            <tr><th>No</th><th>Barcode</th><th>Nama</th><th>Tahun</th><th>Daerah</th><th>Kamar</th><th>Study</th><th>No HP</th><th>Zona</th></tr>
+                            <tr><th>No</th><th>Barcode</th><th>Nama</th><th>Tahun</th><th>Daerah</th><th>Kamar</th><th>Study</th><th>No HP</th><th>Zona</th><th style="min-width: 80px;">Aksi</th></tr>
                         </thead>
                         <tbody id="body-guru"></tbody>
                     </table>
@@ -199,27 +198,17 @@
                 <div class="stats-grid" id="zona-grid"></div>
             </div>
             
-            <!-- REKAP (DENGAN SISTEM FILTER) -->
+            <!-- REKAP -->
             <div id="page-rekap" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Rekap Seluruh Kehadiran</h3>
                     <button class="btn-secondary" onclick="exportRekapToExcel()">Export ke Excel (Sesuai Filter)</button>
                 </div>
                 
-                <!-- BARIS FILTER DINAMIS -->
                 <div style="background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; align-items: end; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-                    <div>
-                        <span class="filter-label">Tanggal</span>
-                        <input type="date" id="filter-tanggal" class="filter-input" onchange="applyFilters()">
-                    </div>
-                    <div>
-                        <span class="filter-label">Jam</span>
-                        <input type="text" id="filter-jam" class="filter-input" placeholder="Cth: 20:..." oninput="applyFilters()">
-                    </div>
-                    <div>
-                        <span class="filter-label">Kegiatan</span>
-                        <input type="text" id="filter-kegiatan" class="filter-input" placeholder="Ketik kegiatan..." oninput="applyFilters()">
-                    </div>
+                    <div><span class="filter-label">Tanggal</span><input type="date" id="filter-tanggal" class="filter-input" onchange="applyFilters()"></div>
+                    <div><span class="filter-label">Jam</span><input type="text" id="filter-jam" class="filter-input" placeholder="Cth: 20:..." oninput="applyFilters()"></div>
+                    <div><span class="filter-label">Kegiatan</span><input type="text" id="filter-kegiatan" class="filter-input" placeholder="Ketik kegiatan..." oninput="applyFilters()"></div>
                     <div>
                         <span class="filter-label">Tahap</span>
                         <select id="filter-tahap" class="filter-input" onchange="applyFilters()">
@@ -229,14 +218,8 @@
                             <option value="Bakdiyah">Bakdiyah</option>
                         </select>
                     </div>
-                    <div>
-                        <span class="filter-label">Nama Guru</span>
-                        <input type="text" id="filter-nama" class="filter-input" placeholder="Ketik nama..." oninput="applyFilters()">
-                    </div>
-                    <div>
-                        <span class="filter-label">Zona</span>
-                        <input type="text" id="filter-zona" class="filter-input" placeholder="Ketik zona..." oninput="applyFilters()">
-                    </div>
+                    <div><span class="filter-label">Nama Guru</span><input type="text" id="filter-nama" class="filter-input" placeholder="Ketik nama..." oninput="applyFilters()"></div>
+                    <div><span class="filter-label">Zona</span><input type="text" id="filter-zona" class="filter-input" placeholder="Ketik zona..." oninput="applyFilters()"></div>
                     <div>
                         <span class="filter-label">Status</span>
                         <select id="filter-status" class="filter-input" onchange="applyFilters()">
@@ -246,36 +229,23 @@
                             <option value="Tidak Hadir">Tidak Hadir</option>
                         </select>
                     </div>
-                    <div>
-                        <span class="filter-label">Admin PJ</span>
-                        <input type="text" id="filter-admin" class="filter-input" placeholder="Ketik admin..." oninput="applyFilters()">
-                    </div>
-                    <div>
-                        <button class="btn-outline" onclick="resetFilters()" style="width: 100%; padding: 8px; font-size: 0.85rem; border-color:#dc2626; color:#dc2626;">Reset</button>
-                    </div>
+                    <div><span class="filter-label">Admin PJ</span><input type="text" id="filter-admin" class="filter-input" placeholder="Ketik admin..." oninput="applyFilters()"></div>
+                    <div><button class="btn-outline" onclick="resetFilters()" style="width: 100%; padding: 8px; font-size: 0.85rem; border-color:#dc2626; color:#dc2626;">Reset</button></div>
                 </div>
 
                 <div class="table-responsive">
                     <table id="tabel-rekap">
                         <thead>
                             <tr>
-                                <th>Hari, Tanggal</th>
-                                <th>Jam</th>
-                                <th>Kegiatan</th>
-                                <th>Tahap</th>
-                                <th>Nama Guru</th>
-                                <th>Zona</th>
-                                <th>Status</th>
-                                <th>Admin PJ</th>
+                                <th>Hari, Tanggal</th><th>Jam</th><th>Kegiatan</th><th>Tahap</th><th>Nama Guru</th><th>Zona</th><th>Status</th><th>Admin PJ</th>
                             </tr>
                         </thead>
-                        <tbody id="body-rekap">
-                        </tbody>
+                        <tbody id="body-rekap"></tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- SETTING (KHUSUS DEVELOPER) -->
+            <!-- SETTING -->
             <div id="page-setting" class="page hidden super-admin-only">
                 <div class="section-header">
                     <h3>Pengaturan Sistem & Hak Akses</h3>
@@ -307,6 +277,7 @@
                                     <th style="padding: 10px;">Nama</th>
                                     <th style="padding: 10px;">Email</th>
                                     <th style="padding: 10px;">Role</th>
+                                    <th style="padding: 10px; min-width: 120px;">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody id="body-daftar-admin">
