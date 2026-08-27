@@ -552,66 +552,6 @@ async function prosesHasilScan(scannedText) {
     }
 }
 
-async function prosesHasilScan(scannedText) {
-    let namaGuru, emailGuru, namaZona;
-    try {
-        if (currentUserData.role === "ADMIN") {
-            const selectedZoneId = document.getElementById("pic-zone-select").value;
-            if (!selectedZoneId) return alert("GAGAL: Pilih 'Zona Tugas Anda' terlebih dahulu!");
-            
-            const qZone = query(collection(db, "zones"), where("id", "==", selectedZoneId));
-            const zoneSnap = await getDocs(qZone);
-            if(zoneSnap.empty) return alert("Zona tidak ditemukan.");
-            
-            const qGuru = query(collection(db, "guru"), where("Barcode", "==", scannedText));
-            const guruSnap = await getDocs(qGuru);
-            if(guruSnap.empty) return alert(`GAGAL: Barcode "${scannedText}" tidak terdaftar!`);
-            
-            namaGuru = guruSnap.docs[0].data().Nama;
-            emailGuru = guruSnap.docs[0].data().Email;
-            namaZona = zoneSnap.docs[0].data().nama;
-        } else {
-            const qZone = query(collection(db, "zones"), where("kode", "==", scannedText));
-            const zoneSnap = await getDocs(qZone);
-            if(zoneSnap.empty) return alert("GAGAL: QR Code Zona tidak valid!");
-            
-            namaGuru = currentUserData.nama;
-            emailGuru = currentUserData.email;
-            namaZona = zoneSnap.docs[0].data().nama;
-        }
-
-        const now = new Date();
-        const currentTimeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-        const status = currentTimeString <= activeSessionData.batasWaktu ? "Tepat Waktu" : "Terlambat";
-        
-        const tanggalSQL = now.toISOString().split('T')[0];
-        const hariIndo = now.toLocaleDateString('id-ID', { weekday: 'long' });
-        const tanggalIndo = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-
-        const qCek = query(collection(db, "attendance"), where("tanggal", "==", tanggalSQL), where("email", "==", emailGuru));
-        const cekSnap = await getDocs(qCek);
-        let sudahAbsen = false;
-        cekSnap.forEach(doc => {
-            let d = doc.data();
-            if(d.namaKegiatan === activeSessionData.namaKegiatan && d.tipeSesi === activeSessionData.tipeSesi) sudahAbsen = true;
-        });
-
-        if (sudahAbsen) return alert(`INFO: ${namaGuru} sudah tercatat hadir pada Tahap ${activeSessionData.tipeSesi} acara "${activeSessionData.namaKegiatan}".`);
-
-        await addDoc(collection(db, "attendance"), {
-            namaGuru, email: emailGuru, namaZona, waktu: currentTimeString, status, tanggal: tanggalSQL, hariStr: hariIndo, tanggalStr: tanggalIndo, 
-            namaKegiatan: activeSessionData.namaKegiatan, 
-            tipeSesi: activeSessionData.tipeSesi, 
-            adminPenanggungJawab: activeSessionData.adminNama, 
-            timestamp: now.getTime()
-        });
-
-        const resultDiv = document.getElementById("scan-result");
-        resultDiv.classList.remove("hidden");
-        resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'};"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}">✓ Absensi Berhasil</h3><p><strong>Nama:</strong> ${namaGuru}</p><p><strong>Zona:</strong> ${namaZona}</p><p><strong>Acara:</strong> ${activeSessionData.namaKegiatan} (${activeSessionData.tipeSesi})</p><p><strong>Waktu:</strong> ${currentTimeString} WIB</p><p><strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
-    } catch (error) { alert("Terjadi kesalahan jaringan: " + error.message); }
-}
-
 // --- 7. DATA GURU: EDIT, HAPUS, & IMPORT ---
 window.hapusGuru = async (barcode, nama) => {
     const pass = prompt(`Masukkan password otorisasi untuk MENGHAPUS data ${nama}:`);
