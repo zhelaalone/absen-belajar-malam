@@ -213,11 +213,15 @@
                 <div class="stats-grid" id="zona-grid"></div>
             </div>
             
-            <!-- REKAP -->
+          <!-- REKAP (DIPERBARUI DENGAN HAPUS MASAL) -->
             <div id="page-rekap" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Rekap Seluruh Kehadiran</h3>
-                    <button class="btn-secondary" onclick="exportRekapToExcel()">Export ke Excel (Sesuai Filter)</button>
+                    <div class="action-buttons" style="display: flex; gap: 10px;">
+                        <!-- Tombol Hapus Masal (Awalnya disembunyikan) -->
+                        <button id="btn-bulk-delete" class="btn-danger hidden" onclick="hapusBanyakRekap()" style="padding: 8px 15px; border-radius: 8px;">Hapus Terpilih (0)</button>
+                        <button class="btn-secondary" onclick="exportRekapToExcel()">Export ke Excel (Sesuai Filter)</button>
+                    </div>
                 </div>
                 
                 <div style="background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; align-items: end; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
@@ -254,7 +258,9 @@
                     <table id="tabel-rekap">
                         <thead>
                             <tr>
-                                <th>Hari, Tanggal</th><th>Jam</th><th>Kegiatan</th><th>Tahap</th><th>Nama Guru</th><th>Zona</th><th>Status</th><th>Admin PJ</th><th style="min-width: 90px;">Aksi</th>
+                                <!-- Kolom Checkbox -->
+                                <th style="width: 40px; text-align: center;"><input type="checkbox" id="check-all" onclick="toggleCheckAll()" style="transform: scale(1.2); cursor: pointer;"></th>
+                                <th>Hari, Tanggal</th><th>Jam</th><th>Kegiatan</th><th>Tahap</th><th>Nama Guru</th><th>Zona</th><th>Status</th><th>Admin PJ</th><th style="min-width: 130px;">Aksi</th>
                             </tr>
                         </thead>
                         <tbody id="body-rekap"></tbody>
