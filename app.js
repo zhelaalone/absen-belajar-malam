@@ -189,28 +189,6 @@ async function setupScannerUI() {
     }
 }
 
-async function setupScannerUI() {
-    if (!currentUserData) return;
-    const adminSelector = document.getElementById("admin-zone-selector");
-    const scanTitle = document.getElementById("scan-title");
-    const scanDesc = document.getElementById("scan-desc");
-    
-    if (currentUserData.role === "ADMIN") {
-        adminSelector.classList.remove("hidden");
-        scanTitle.innerText = "Scan Kartu Guru (Sistem 1)";
-        scanDesc.innerText = "Pilih zona tugas Anda, lalu scan Barcode/ID Card milik guru.";
-        
-        const select = document.getElementById("pic-zone-select");
-        const zonesSnap = await getDocs(collection(db, "zones"));
-        select.innerHTML = '<option value="">-- Pilih Zona Anda Bertugas --</option>';
-        zonesSnap.forEach(doc => { select.innerHTML += `<option value="${doc.data().id}">${doc.data().nama}</option>`; });
-    } else {
-        adminSelector.classList.add("hidden");
-        scanTitle.innerText = "Scan QR Zona (Sistem 2)";
-        scanDesc.innerText = "Arahkan kamera ke QR Code yang terdapat di zona absensi Anda.";
-    }
-}
-
 // --- 3. FITUR TAMBAH, EDIT, & HAPUS ADMIN ---
 window.tambahAdmin = async () => {
     if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak!");
@@ -464,9 +442,10 @@ window.startScanner = async () => {
         await prosesHasilScan(decodedText);
         
         isProcessingScan = false; // Buka gerbang untuk scan orang selanjutnya
-    }, (errorMessage) => { /* Abaikan pesan error gagal baca cahaya */ });
+    }, (errorMessage) => { /* Abaikan error sensor cahaya kamera */ });
 };
 
+// Fungsi mematikan kamera manual
 window.stopScanner = () => {
     if (html5QrcodeScanner) {
         html5QrcodeScanner.clear();
