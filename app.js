@@ -499,9 +499,21 @@ async function prosesHasilScan(scannedText) {
                 return;
             }
             
-            namaGuru = guruSnap.docs[0].data().Nama;
-            emailGuru = guruSnap.docs[0].data().Email;
-            namaZona = zoneSnap.docs[0].data().nama;
+            const guruData = guruSnap.docs[0].data();
+            namaGuru = guruData.Nama;
+            emailGuru = guruData.Email;
+            namaZona = zoneSnap.docs[0].data().nama; // Zona tempat admin bertugas
+            const zonaGuruAsli = guruData.Zona; // Zona penugasan asli guru dari database
+
+            // FITUR BARU: VALIDASI SALAH ZONA (Admin Scan ID Guru)
+            if (zonaGuruAsli !== namaZona) {
+                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
+                    <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
+                    <p style="margin:0;">Guru <strong>${namaGuru}</strong> ditugaskan di <strong>${zonaGuruAsli}</strong>, bukan di sini (${namaZona}).<br>Silakan arahkan guru tersebut ke zona yang benar.</p>
+                </div>`;
+                return; // Hentikan proses, jangan simpan absen
+            }
+
         } else {
             const qZone = query(collection(db, "zones"), where("kode", "==", scannedText));
             const zoneSnap = await getDocs(qZone);
@@ -509,9 +521,19 @@ async function prosesHasilScan(scannedText) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
                 return;
             }
+            
             namaGuru = currentUserData.nama;
             emailGuru = currentUserData.email;
-            namaZona = zoneSnap.docs[0].data().nama;
+            namaZona = zoneSnap.docs[0].data().nama; // Zona milik QR yang di-scan
+
+            // FITUR BARU: VALIDASI SALAH ZONA (Guru Scan QR)
+            if (currentUserData.zona !== namaZona) {
+                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
+                    <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
+                    <p style="margin:0;">Anda seharusnya bertugas di zona <strong>${currentUserData.zona}</strong>.<br>Anda tidak diizinkan absen di zona ${namaZona}.</p>
+                </div>`;
+                return; // Hentikan proses
+            }
         }
 
         const now = new Date();
