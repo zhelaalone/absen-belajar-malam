@@ -204,11 +204,14 @@
                 </div>
             </div>
 
-            <!-- MANAJEMEN ZONA -->
+          <!-- MANAJEMEN ZONA -->
             <div id="page-zona" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Manajemen Zona Belajar</h3>
-                    <button class="btn-outline" onclick="window.print()">Print Semua QR</button>
+                    <div class="action-buttons" style="display: flex; gap: 10px;">
+                        <button id="btn-refresh-qr" class="btn-danger" onclick="refreshSemuaQRZona()" style="padding: 8px 15px; border-radius: 8px; font-weight: bold;">🔄 Refresh Semua QR</button>
+                        <button class="btn-outline" onclick="window.print()">Print Semua QR</button>
+                    </div>
                 </div>
                 <div class="stats-grid" id="zona-grid"></div>
             </div>
