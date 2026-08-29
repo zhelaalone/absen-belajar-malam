@@ -760,20 +760,128 @@ async function renderTabelGuru() {
     });
 }
 
+// --- UPDATE RENDER ZONA (MENAMBAH TOMBOL DOWNLOAD PER ZONA) ---
 async function renderManajemenZona() {
     const grid = document.getElementById("zona-grid");
     const zonesSnap = await getDocs(collection(db, "zones"));
     grid.innerHTML = "";
+    
     let zones = [];
     zonesSnap.forEach(doc => zones.push(doc.data()));
 
     zones.forEach(zona => {
-        grid.innerHTML += `<div class="zona-card"><h4>${zona.nama}</h4><p>Kode: ${zona.kode}</p><div class="qr-container" id="qr-${zona.id}"></div></div>`;
+        grid.innerHTML += `
+        <div class="zona-card" style="text-align: center; padding: 20px; border: 1px solid #eee; border-radius: 12px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+            <h4 style="margin-bottom: 5px; color: #1f2937;">${zona.nama}</h4>
+            <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 15px;">Kode: ${zona.kode}</p>
+            <div class="qr-container" id="qr-${zona.id}" style="display: flex; justify-content: center; margin-bottom: 15px; min-height: 128px;"></div>
+            <button onclick="downloadQRZona('${zona.kode}', '${zona.nama}')" style="background:#10b981; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer; font-size:0.85rem; width:100%; font-weight:bold; transition: 0.2s;">Unduh QR Zona Ini</button>
+        </div>`;
     });
+    
     setTimeout(() => {
-        zones.forEach(zona => new QRCode(document.getElementById(`qr-${zona.id}`), {text: zona.kode, width: 128, height: 128, colorDark : "#000", colorLight : "#fff", correctLevel : QRCode.CorrectLevel.H}));
+        zones.forEach(zona => new QRCode(document.getElementById(`qr-${zona.id}`), {
+            text: zona.kode, 
+            width: 128, 
+            height: 128, 
+            colorDark : "#000000", 
+            colorLight : "#ffffff", 
+            correctLevel : QRCode.CorrectLevel.H
+        }));
     }, 100);
 }
+
+// --- FUNGSI BARU: DOWNLOAD SATU QR CODE ZONA (RESOLUSI TINGGI UNTUK POSTER) ---
+window.downloadQRZona = (kodeZona, namaZona) => {
+    // 1. Buat elemen penampung sementara (tersembunyi)
+    const tempDiv = document.createElement("div");
+    tempDiv.style.display = "none";
+    document.body.appendChild(tempDiv);
+
+    // 2. Generate QR Code ukuran besar ke dalam penampung
+    new QRCode(tempDiv, {
+        text: kodeZona,
+        width: 300,
+        height: 300,
+        colorDark : "#000000",
+        colorLight : "#ffffff",
+        correctLevel : QRCode.CorrectLevel.H
+    });
+
+    // 3. Beri waktu agar gambar QR selesai dirender
+    setTimeout(() => {
+        const qrCanvas = tempDiv.querySelector("canvas");
+        if (qrCanvas) {
+            // 4. Siapkan Canvas baru untuk menggabungkan QR dan Teks
+            const finalCanvas = document.createElement("canvas");
+            finalCanvas.width = 350;
+            finalCanvas.height = 420; // Lebih tinggi untuk tempat tulisan
+            const ctx = finalCanvas.getContext("2d");
+
+            // Beri background putih polos
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+
+            // Tempelkan gambar QR Code di tengah
+            ctx.drawImage(qrCanvas, 25, 20, 300, 300);
+
+            // Tambahkan Teks Nama Zona
+            ctx.fillStyle = "#1f2937"; // Warna teks gelap
+            ctx.font = "bold 24px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(namaZona, finalCanvas.width / 2, 360);
+            
+            // Tambahkan Instruksi di bawah nama zona
+            ctx.font = "16px sans-serif";
+            ctx.fillStyle = "#6b7280"; // Warna abu-abu
+            ctx.fillText("Scan QR untuk Absen di Sini", finalCanvas.width / 2, 390);
+
+            // 5. Ubah canvas menjadi file gambar dan otomatis download
+            const link = document.createElement("a");
+            link.download = `Poster_QR_Zona_${namaZona.replace(/[^a-zA-Z0-9]/g, '_')}.png`; 
+            link.href = finalCanvas.toDataURL("image/png");
+            link.click();
+        }
+        // Hapus elemen sementara agar memori bersih
+        document.body.removeChild(tempDiv);
+    }, 300);
+};
+
+// --- FUNGSI BARU: REFRESH SEMUA QR ZONA (ANTI-KECURANGAN) ---
+window.refreshSemuaQRZona = async () => {
+    if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
+    
+    if (!confirm("PERINGATAN ANTI-KECURANGAN:\n\nAnda akan mereset dan MENGGANTI SEMUA QR Code Zona. QR Code yang lama (maupun foto yang disimpan guru) akan HANGUS dan otomatis ditolak oleh sistem.\n\nYakin ingin mereset sekarang?")) return;
+
+    const btn = document.getElementById("btn-refresh-qr");
+    if(btn) { btn.innerText = "Mereset..."; btn.disabled = true; }
+
+    try {
+        const zonesSnap = await getDocs(collection(db, "zones"));
+        const batch = writeBatch(db); // Gunakan batch agar update ke database terjadi serentak
+
+        zonesSnap.forEach(docSnap => {
+            const data = docSnap.data();
+            
+            // Generate 6 kode acak baru (Kombinasi huruf kapital & angka)
+            const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+            
+            // Format kode baru: "QR_G_RIYADH_A8F2K9"
+            const newKode = `QR_${data.id}_${randomStr}`; 
+
+            batch.update(doc(db, "zones", docSnap.id), { kode: newKode });
+        });
+
+        await batch.commit();
+        alert("SUKSES: Semua QR Code Zona telah diperbarui!\n\nGuru yang mencoba scan pakai foto QR lama akan langsung DITOLAK. Silakan unduh/tampilkan QR yang baru.");
+        
+        renderManajemenZona(); // Muat ulang gambar QR di layar dengan kode yang baru
+    } catch (error) {
+        alert("Gagal mereset QR: " + error.message);
+    } finally {
+        if(btn) { btn.innerText = "🔄 Refresh Semua QR"; btn.disabled = false; }
+    }
+};
 
 
 // --- 8. FUNGSI LOGIKA REKAP OTOMATIS & KONFIRMASI STATUS UI (MODAL) ---
