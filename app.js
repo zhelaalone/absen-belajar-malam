@@ -35,13 +35,105 @@ const DEFAULT_ZONES = [
 ];
 
 async function initSystem() {
-    const zoneSnap = await getDocs(collection(db, "zones"));
-    if (zoneSnap.empty) {
-        const batch = writeBatch(db);
-        DEFAULT_ZONES.forEach(z => batch.set(doc(db, "zones", z.id), z));
-        await batch.commit();
+    try {
+        // 1. Inisialisasi zona default jika koleksi zones kosong
+        const zoneSnap = await getDocs(collection(db, "zones"));
+        if (zoneSnap.empty) {
+            const batch = writeBatch(db);
+            DEFAULT_ZONES.forEach(z => batch.set(doc(db, "zones", z.id), z));
+            await batch.commit();
+        }
+
+        // 2. OTOMATIS SINKRONISASI ZONA DARI DATA GURU
+        const guruSnap = await getDocs(collection(db, "guru"));
+        if (!guruSnap.empty) {
+            let existingZonesMap = new Map();
+            const currentZonesSnap = await getDocs(collection(db, "zones"));
+            currentZonesSnap.forEach(d => existingZonesMap.set(d.data().nama.toLowerCase(), d.data()));
+
+            const batchSync = writeBatch(db);
+            let hasNewZone = false;
+
+            guruSnap.forEach(gDoc => {
+                let guruZona = gDoc.data().Zona;
+                if (guruZona && guruZona !== "-" && !existingZonesMap.has(guruZona.toLowerCase())) {
+                    let generatedId = guruZona.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+                    let generatedKode = `QR_${generatedId}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+                    
+                    batchSync.set(doc(db, "zones", generatedId), {
+                        id: generatedId,
+                        nama: guruZona,
+                        kode: generatedKode
+                    });
+                    existingZonesMap.set(guruZona.toLowerCase(), true);
+                    hasNewZone = true;
+                }
+            });
+
+            if (hasNewZone) {
+                await batchSync.commit();
+            }
+        }
+    } catch (e) {
+        console.error("Gagal sinkronisasi sistem zona:", e);
     }
 }
+
+// --- TAMBAHAN: FITUR KELOLA ZONA MANUAL ---
+window.tambahZonaManual = async () => {
+    if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
+    
+    const namaZonaBaru = prompt("Masukkan Nama Zona Baru (Cth: Gedung Al-Azhar):");
+    if (!namaZonaBaru || !namaZonaBaru.trim()) return;
+
+    try {
+        let cleanName = namaZonaBaru.trim();
+        let generatedId = cleanName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+        let generatedKode = `QR_${generatedId}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+        await setDoc(doc(db, "zones", generatedId), {
+            id: generatedId,
+            nama: cleanName,
+            kode: generatedKode
+        });
+
+        alert(`SUKSES: Zona "${cleanName}" berhasil ditambahkan!`);
+        renderManajemenZona();
+    } catch (error) {
+        alert("Gagal menambah zona: " + error.message);
+    }
+};
+
+window.editZona = async (zoneDocId, namaLama) => {
+    if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
+
+    const namaBaru = prompt("Ubah Nama Zona:", namaLama);
+    if (namaBaru === null || !namaBaru.trim()) return;
+
+    try {
+        await updateDoc(doc(db, "zones", zoneDocId), {
+            nama: namaBaru.trim()
+        });
+        alert("SUKSES: Nama zona berhasil diperbarui.");
+        renderManajemenZona();
+    } catch (error) {
+        alert("Gagal mengedit zona: " + error.message);
+    }
+};
+
+window.hapusZona = async (zoneDocId, namaZona) => {
+    if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
+
+    if (confirm(`Peringatan: Yakin ingin menghapus zona "${namaZona}"?`)) {
+        try {
+            await deleteDoc(doc(db, "zones", zoneDocId));
+            alert(`Zona ${namaZona} berhasil dihapus.`);
+            renderManajemenZona();
+        } catch (error) {
+            alert("Gagal menghapus zona: " + error.message);
+        }
+    }
+};
 
 // --- 1. LOGIN SYSTEM & HAK AKSES ---
 async function checkLoginStatus() {
@@ -767,7 +859,10 @@ async function renderManajemenZona() {
     grid.innerHTML = "";
     
     let zones = [];
-    zonesSnap.forEach(doc => zones.push(doc.data()));
+    zonesSnap.forEach(docSnap => {
+        let data = docSnap.data();
+        zones.push({ docId: docSnap.id, ...data });
+    });
 
     zones.forEach(zona => {
         grid.innerHTML += `
@@ -775,19 +870,29 @@ async function renderManajemenZona() {
             <h4 style="margin-bottom: 5px; color: #1f2937;">${zona.nama}</h4>
             <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 15px;">Kode: ${zona.kode}</p>
             <div class="qr-container" id="qr-${zona.id}" style="display: flex; justify-content: center; margin-bottom: 15px; min-height: 128px;"></div>
-            <button onclick="downloadQRZona('${zona.kode}', '${zona.nama}')" style="background:#10b981; color:#fff; border:none; padding:10px; border-radius:8px; cursor:pointer; font-size:0.85rem; width:100%; font-weight:bold; transition: 0.2s;">Unduh QR Zona Ini</button>
+            <button onclick="downloadQRZona('${zona.kode}', '${zona.nama}')" style="background:#10b981; color:#fff; border:none; padding:8px; border-radius:8px; cursor:pointer; font-size:0.8rem; width:100%; font-weight:bold; margin-bottom: 8px;">Unduh QR Zona Ini</button>
+            <div style="display: flex; gap: 5px;">
+                <button onclick="editZona('${zona.docId}', '${zona.nama}')" style="background:#f59e0b; color:#fff; border:none; padding:5px; border-radius:6px; cursor:pointer; font-size:0.75rem; flex: 1;">Edit</button>
+                <button onclick="hapusZona('${zona.docId}', '${zona.nama}')" style="background:#dc2626; color:#fff; border:none; padding:5px; border-radius:6px; cursor:pointer; font-size:0.75rem; flex: 1;">Hapus</button>
+            </div>
         </div>`;
     });
     
     setTimeout(() => {
-        zones.forEach(zona => new QRCode(document.getElementById(`qr-${zona.id}`), {
-            text: zona.kode, 
-            width: 128, 
-            height: 128, 
-            colorDark : "#000000", 
-            colorLight : "#ffffff", 
-            correctLevel : QRCode.CorrectLevel.H
-        }));
+        zones.forEach(zona => {
+            const container = document.getElementById(`qr-${zona.id}`);
+            if(container) {
+                container.innerHTML = "";
+                new QRCode(container, {
+                    text: zona.kode, 
+                    width: 128, 
+                    height: 128, 
+                    colorDark : "#000000", 
+                    colorLight : "#ffffff", 
+                    correctLevel : QRCode.CorrectLevel.H
+                });
+            }
+        });
     }, 100);
 }
 
