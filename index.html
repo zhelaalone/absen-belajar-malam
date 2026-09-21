@@ -208,7 +208,8 @@
             <div id="page-zona" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Manajemen Zona Belajar</h3>
-                    <div class="action-buttons" style="display: flex; gap: 10px;">
+                    <div class="action-buttons" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button class="btn-primary" onclick="tambahZonaManual()" style="padding: 8px 15px; border-radius: 8px; font-weight: bold;">+ Tambah Zona</button>
                         <button id="btn-refresh-qr" class="btn-danger" onclick="refreshSemuaQRZona()" style="padding: 8px 15px; border-radius: 8px; font-weight: bold;">🔄 Refresh Semua QR</button>
                         <button class="btn-outline" onclick="window.print()">Print Semua QR</button>
                     </div>
