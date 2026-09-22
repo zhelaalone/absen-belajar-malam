@@ -182,51 +182,74 @@ async function checkLoginStatus() {
 
 document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = document.getElementById("email").value;
+    const email = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value;
     const errorMsg = document.getElementById("login-error");
     const btnSubmit = document.querySelector("button[type='submit']");
     
     btnSubmit.innerText = "Memeriksa ke Cloud...";
     btnSubmit.disabled = true;
+    errorMsg.innerText = ""; // Bersihkan pesan error sebelumnya
 
     try {
-        if (password === "2026") {
-            if (email === "zhelaal.one@gmail.com") {
+        // 1. Cek apakah yang login adalah Super Admin
+        if (email === "zhelaal.one@gmail.com") {
+            if (password === "2026") {
                 const userData = { uid: "ADM-SUPER", nama: "Zhela (Super Admin)", email: email, role: "ADMIN" };
                 sessionStorage.setItem("mockUser", JSON.stringify(userData));
+                checkLoginStatus(); 
                 btnSubmit.innerText = "Masuk ke Sistem"; btnSubmit.disabled = false;
-                checkLoginStatus(); return;
+                return;
             } else {
-                const qAdmin = query(collection(db, "admins"), where("email", "==", email));
-                const adminSnap = await getDocs(qAdmin);
-                if (!adminSnap.empty) {
-                    const adminData = adminSnap.docs[0].data();
-                    const userData = { uid: "ADM-STAFF", nama: adminData.nama || "Admin Staff", email: email, role: "ADMIN" };
-                    sessionStorage.setItem("mockUser", JSON.stringify(userData));
-                    btnSubmit.innerText = "Masuk ke Sistem"; btnSubmit.disabled = false;
-                    checkLoginStatus(); return;
-                } else {
-                    errorMsg.innerText = "Email ini tidak terdaftar sebagai Admin!";
-                }
-            }
-        } else {
-            const q = query(collection(db, "guru"), where("Email", "==", email));
-            const querySnapshot = await getDocs(q);
-            if (!querySnapshot.empty) {
-                if (password === "123456") {
-                    const foundGuru = querySnapshot.docs[0].data();
-                    const userData = { uid: foundGuru.Barcode, nama: foundGuru.Nama, email: foundGuru.Email, zona: foundGuru.Zona, role: "GURU" };
-                    sessionStorage.setItem("mockUser", JSON.stringify(userData));
-                    checkLoginStatus(); return; 
-                } else {
-                    errorMsg.innerText = "Password salah! (Guru: 123456 | Admin: 2026)";
-                }
-            } else {
-                errorMsg.innerText = "Email belum terdaftar di Cloud.";
+                errorMsg.innerText = "Password salah!";
+                btnSubmit.innerText = "Masuk ke Sistem"; btnSubmit.disabled = false;
+                return;
             }
         }
-    } catch (error) { errorMsg.innerText = "Gagal terhubung ke server."; }
+
+        // 2. Cek apakah yang login adalah Admin Staff
+        const qAdmin = query(collection(db, "admins"), where("email", "==", email));
+        const adminSnap = await getDocs(qAdmin);
+        
+        if (!adminSnap.empty) {
+            const adminData = adminSnap.docs[0].data();
+            // Jika field password ada di database, gunakan itu. Jika belum ada, gunakan 2026
+            const adminPass = adminData.password || "2026"; 
+            
+            if (password === adminPass) {
+                const userData = { uid: "ADM-STAFF", nama: adminData.nama || "Admin Staff", email: email, role: "ADMIN" };
+                sessionStorage.setItem("mockUser", JSON.stringify(userData));
+                checkLoginStatus(); 
+            } else {
+                errorMsg.innerText = "Password salah!";
+            }
+            btnSubmit.innerText = "Masuk ke Sistem"; btnSubmit.disabled = false;
+            return;
+        }
+
+        // 3. Cek apakah yang login adalah Guru
+        const qGuru = query(collection(db, "guru"), where("Email", "==", email));
+        const guruSnap = await getDocs(qGuru);
+        
+        if (!guruSnap.empty) {
+            if (password === "123456") {
+                const foundGuru = guruSnap.docs[0].data();
+                const userData = { uid: foundGuru.Barcode, nama: foundGuru.Nama, email: foundGuru.Email, zona: foundGuru.Zona, role: "GURU" };
+                sessionStorage.setItem("mockUser", JSON.stringify(userData));
+                checkLoginStatus(); 
+            } else {
+                errorMsg.innerText = "Password salah!";
+            }
+            btnSubmit.innerText = "Masuk ke Sistem"; btnSubmit.disabled = false;
+            return;
+        } 
+        
+        // Jika tidak terdaftar sama sekali
+        errorMsg.innerText = "Email belum terdaftar di Cloud.";
+
+    } catch (error) { 
+        errorMsg.innerText = "Gagal terhubung ke server: " + error.message; 
+    }
     
     btnSubmit.innerText = "Masuk ke Sistem"; btnSubmit.disabled = false;
 });
@@ -344,6 +367,26 @@ window.editAdmin = async (id, namaLama, emailLama) => {
     } catch (error) { alert("Gagal mengedit admin: " + error.message); }
 };
 
+window.gantiPasswordAdmin = async (id, nama) => {
+    if (currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak! Hanya Super Admin yang bisa mengubah password.");
+    
+    const passwordBaru = prompt(`Masukkan password baru untuk Admin "${nama}":\n(Minimal 4 karakter)`);
+    if (passwordBaru === null) return; 
+    
+    if (passwordBaru.trim().length < 4) {
+        return alert("GAGAL: Password terlalu pendek! Minimal 4 karakter.");
+    }
+
+    try {
+        await updateDoc(doc(db, "admins", id), { 
+            password: passwordBaru.trim() 
+        });
+        alert(`SUKSES: Password untuk Admin ${nama} berhasil diubah.`);
+    } catch (error) { 
+        alert("Gagal mengubah password admin: " + error.message); 
+    }
+};
+
 async function renderDaftarAdmin() {
     const tbody = document.getElementById("body-daftar-admin");
     tbody.innerHTML = `<tr>
@@ -362,8 +405,9 @@ async function renderDaftarAdmin() {
                 <td style="padding: 10px;"><strong>${data.nama || "Admin Staff"}</strong></td>
                 <td style="padding: 10px;">${data.email}</td>
                 <td style="padding: 10px;"><span class="badge" style="background:#eef2ff; color:#4f46e5;">Admin Staff</span></td>
-                <td style="padding: 10px;">
-                    <button onclick="editAdmin('${adminId}', '${data.nama}', '${data.email}')" style="background:#f59e0b; color:#fff; border:none; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:0.75rem; margin-right:4px;">Edit</button>
+                <td style="padding: 10px; display: flex; flex-wrap: wrap; gap: 5px;">
+                    <button onclick="editAdmin('${adminId}', '${data.nama}', '${data.email}')" style="background:#f59e0b; color:#fff; border:none; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:0.75rem;">Edit</button>
+                    <button onclick="gantiPasswordAdmin('${adminId}', '${data.nama}')" style="background:#10b981; color:#fff; border:none; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:0.75rem;">Ubah Pass</button>
                     <button onclick="hapusAdmin('${adminId}', '${data.nama}')" style="background:#dc2626; color:#fff; border:none; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:0.75rem;">Hapus</button>
                 </td>
             </tr>`;
