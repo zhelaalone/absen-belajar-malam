@@ -27,6 +27,7 @@ let allRekapData = [];
 let filteredRekapData = [];
 let currentEditIndex = -1; // Variabel penyimpan baris yang sedang diedit di modal
 
+// --- 1. INISIALISASI & PENDENGAR ZONA REAL-TIME ---
 const DEFAULT_ZONES = [
     { id: "G_RIYADH", nama: "Gedung Riyadh", kode: "QR_G_RIYADH" },
     { id: "G_MADINAH", nama: "Gedung Madinah", kode: "QR_G_MADINAH" },
@@ -36,7 +37,6 @@ const DEFAULT_ZONES = [
 
 async function initSystem() {
     try {
-        // 1. Inisialisasi zona default jika koleksi zones kosong
         const zoneSnap = await getDocs(collection(db, "zones"));
         if (zoneSnap.empty) {
             const batch = writeBatch(db);
@@ -44,7 +44,7 @@ async function initSystem() {
             await batch.commit();
         }
 
-        // 2. OTOMATIS SINKRONISASI ZONA DARI DATA GURU
+        // Sinkronisasi zona dari data guru
         const guruSnap = await getDocs(collection(db, "guru"));
         if (!guruSnap.empty) {
             let existingZonesMap = new Map();
@@ -74,6 +74,19 @@ async function initSystem() {
                 await batchSync.commit();
             }
         }
+
+        // --- TAMBAHAN PENTING: AUTO-SYNC ZONA REALTIME ---
+        // Jika ada admin yang me-refresh QR, memori lokal HP semua admin lain langsung diperbarui detik itu juga
+        onSnapshot(collection(db, "zones"), (snapshot) => {
+            localZoneCache = new Map();
+            snapshot.forEach(docSnap => {
+                const d = docSnap.data();
+                localZoneCache.set(d.kode.toString().trim(), d);
+                localZoneCache.set(d.id.toString().trim(), d);
+            });
+            console.log("Cache zona diperbarui otomatis secara real-time.");
+        });
+
     } catch (e) {
         console.error("Gagal sinkronisasi sistem zona:", e);
     }
