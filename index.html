@@ -194,6 +194,22 @@
                         <input type="file" id="excel-upload" class="hidden" accept=".xlsx, .xls" onchange="handleExcelImport(event)">
                     </div>
                 </div>
+
+                <!-- TAMBAHAN: FILTER PENCARIAN DATA GURU -->
+                <div style="background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <div>
+                        <span class="filter-label">Filter Nama</span>
+                        <input type="text" id="filter-guru-nama" class="filter-input" placeholder="Cari nama guru..." oninput="applyGuruFilters()">
+                    </div>
+                    <div>
+                        <span class="filter-label">Filter Tahun</span>
+                        <input type="text" id="filter-guru-tahun" class="filter-input" placeholder="Cari tahun (Cth: Thn 6)..." oninput="applyGuruFilters()">
+                    </div>
+                    <div>
+                        <button class="btn-outline" onclick="resetGuruFilters()" style="padding: 8px 15px; font-size: 0.85rem; border-color:#dc2626; color:#dc2626;">Reset</button>
+                    </div>
+                </div>
+
                 <div class="table-responsive">
                     <table id="tabel-guru">
                         <thead>
