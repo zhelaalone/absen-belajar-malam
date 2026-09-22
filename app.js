@@ -652,13 +652,20 @@ async function prosesHasilScan(cleanText) {
         if (currentUserData.role === "ADMIN") {
             const selectedZoneId = document.getElementById("pic-zone-select").value;
             
-            // BACA DARI MEMORI LOKAL (Instant)
-            const zoneData = localZoneCache.get(selectedZoneId);
-            const guruData = localGuruCache.get(cleanText);
+            let zoneData = localZoneCache.get(selectedZoneId);
+            let guruData = localGuruCache.get(cleanText);
             
+            // --- PERBAIKAN: JIKA DI MEMORI LOKAL TIDAK ADA, CEK KE SERVER CLOUD ---
             if(!guruData) {
-                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode ${cleanText} tidak ada di database Guru.</p></div>`;
-                return;
+                const qGuru = query(collection(db, "guru"), where("Barcode", "==", cleanText));
+                const guruSnap = await getDocs(qGuru);
+                if (!guruSnap.empty) {
+                    guruData = guruSnap.docs[0].data();
+                    localGuruCache.set(cleanText, guruData); // Simpan ke memori lokal agar scan berikutnya instan
+                } else {
+                    resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode ${cleanText} tidak ada di database Guru.</p></div>`;
+                    return;
+                }
             }
             
             namaGuru = guruData.Nama;
@@ -675,11 +682,19 @@ async function prosesHasilScan(cleanText) {
             }
 
         } else {
-            // BACA ZONA DARI MEMORI LOKAL (Instant)
-            const zoneData = localZoneCache.get(cleanText);
+            let zoneData = localZoneCache.get(cleanText);
+            
+            // --- PERBAIKAN: JIKA DI MEMORI LOKAL TIDAK ADA, CEK KE SERVER CLOUD ---
             if(!zoneData) {
-                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
-                return;
+                const qZone = query(collection(db, "zones"), where("kode", "==", cleanText));
+                const zoneSnap = await getDocs(qZone);
+                if (!zoneSnap.empty) {
+                    zoneData = zoneSnap.docs[0].data();
+                    localZoneCache.set(cleanText, zoneData); // Simpan ke memori lokal agar scan berikutnya instan
+                } else {
+                    resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
+                    return;
+                }
             }
             
             namaGuru = currentUserData.nama;
