@@ -556,6 +556,10 @@ let isProcessingScan = false;
 let lastScannedText = "";
 let lastScannedTime = 0;
 
+// Variabel untuk menyimpan data secara lokal agar scan instan
+let localGuruCache = null;
+let localZoneCache = null;
+
 window.startScanner = async () => {
     if (!activeSessionData) return alert("GAGAL: Admin belum memulai sesi absensi apapun!");
     
@@ -566,8 +570,31 @@ window.startScanner = async () => {
 
     document.getElementById("btn-start-scan").classList.add("hidden");
     document.getElementById("scan-result").classList.remove("hidden"); 
-    document.getElementById("scan-result").innerHTML = "<div style='text-align:center; padding:15px; color:#6b7280; font-weight:bold;'>Kamera aktif. Silakan arahkan ID Card / QR Code ke kamera...</div>";
     
+    // Tampilan Loading Cache
+    document.getElementById("scan-result").innerHTML = "<div style='text-align:center; padding:15px; color:#4f46e5; font-weight:bold;'>⏳ Menyiapkan data sistem untuk scan super cepat...</div>";
+    
+    try {
+        // MENDOWNLOAD DATA GURU & ZONA KE MEMORI LOKAL
+        if (!localGuruCache) {
+            localGuruCache = new Map();
+            const gSnap = await getDocs(collection(db, "guru"));
+            gSnap.forEach(doc => localGuruCache.set(doc.data().Barcode.toString().trim(), doc.data()));
+        }
+        if (!localZoneCache) {
+            localZoneCache = new Map();
+            const zSnap = await getDocs(collection(db, "zones"));
+            zSnap.forEach(doc => {
+                const d = doc.data();
+                localZoneCache.set(d.kode.toString().trim(), d); 
+                localZoneCache.set(d.id.toString().trim(), d);   
+            });
+        }
+    } catch(e) {
+        return alert("Gagal memuat sistem: " + e.message);
+    }
+
+    // Buat tombol tutup kamera jika belum ada
     let stopBtn = document.getElementById("btn-stop-scan");
     if(!stopBtn) {
         stopBtn = document.createElement("button");
@@ -581,12 +608,12 @@ window.startScanner = async () => {
     }
     stopBtn.classList.remove("hidden");
 
+    document.getElementById("scan-result").innerHTML = "<div style='text-align:center; padding:15px; color:#6b7280; font-weight:bold;'>Kamera aktif. Silakan arahkan ID Card / QR Code ke kamera...</div>";
+
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
     html5QrcodeScanner.render(async (decodedText, decodedResult) => {
-        const now = Date.now();
-        
-        // MEMBERSIHKAN TEKS SCAN: Hapus enter, tab, atau spasi gaib dari pembacaan kamera
         const cleanScannedText = decodedText.toString().trim();
+        const now = Date.now();
         
         // MENCEGAH DOUBLE SCAN: Jeda 3 detik
         if (isProcessingScan) return;
@@ -596,9 +623,8 @@ window.startScanner = async () => {
         lastScannedText = cleanScannedText;
         lastScannedTime = now;
 
-        document.getElementById("scan-result").innerHTML = `<div style="background: #eef2ff; padding: 15px; border-radius: 8px; text-align: center; color: #4f46e5; margin-top:20px; font-weight:bold;">⏳ Menyimpan data absen...</div>`;
+        document.getElementById("scan-result").innerHTML = `<div style="background: #eef2ff; padding: 15px; border-radius: 8px; text-align: center; color: #4f46e5; margin-top:20px; font-weight:bold;">⚡ Memproses data...</div>`;
 
-        // Kirim teks yang sudah 100% bersih ke database
         await prosesHasilScan(cleanScannedText);
         
         isProcessingScan = false; 
@@ -618,32 +644,26 @@ window.stopScanner = () => {
     document.getElementById("scan-result").classList.add("hidden"); 
 };
 
-async function prosesHasilScan(scannedText) {
-    // Lapis kedua pembersihan teks
-    const cleanText = scannedText.toString().trim();
-    
+async function prosesHasilScan(cleanText) {
     let namaGuru, emailGuru, namaZona;
     const resultDiv = document.getElementById("scan-result");
 
     try {
         if (currentUserData.role === "ADMIN") {
             const selectedZoneId = document.getElementById("pic-zone-select").value;
-            const qZone = query(collection(db, "zones"), where("id", "==", selectedZoneId));
-            const zoneSnap = await getDocs(qZone);
             
-            // Pencocokan menggunakan cleanText
-            const qGuru = query(collection(db, "guru"), where("Barcode", "==", cleanText));
-            const guruSnap = await getDocs(qGuru);
+            // BACA DARI MEMORI LOKAL (Instant)
+            const zoneData = localZoneCache.get(selectedZoneId);
+            const guruData = localGuruCache.get(cleanText);
             
-            if(guruSnap.empty) {
+            if(!guruData) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode ${cleanText} tidak ada di database Guru.</p></div>`;
                 return;
             }
             
-            const guruData = guruSnap.docs[0].data();
             namaGuru = guruData.Nama;
             emailGuru = guruData.Email;
-            namaZona = zoneSnap.docs[0].data().nama; 
+            namaZona = zoneData.nama; 
             const zonaGuruAsli = guruData.Zona; 
 
             if (zonaGuruAsli !== namaZona) {
@@ -655,17 +675,16 @@ async function prosesHasilScan(scannedText) {
             }
 
         } else {
-            // Pencocokan QR Zona menggunakan cleanText
-            const qZone = query(collection(db, "zones"), where("kode", "==", cleanText));
-            const zoneSnap = await getDocs(qZone);
-            if(zoneSnap.empty) {
+            // BACA ZONA DARI MEMORI LOKAL (Instant)
+            const zoneData = localZoneCache.get(cleanText);
+            if(!zoneData) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
                 return;
             }
             
             namaGuru = currentUserData.nama;
             emailGuru = currentUserData.email;
-            namaZona = zoneSnap.docs[0].data().nama; 
+            namaZona = zoneData.nama; 
 
             if (currentUserData.zona !== namaZona) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
@@ -697,18 +716,20 @@ async function prosesHasilScan(scannedText) {
             return;
         }
 
-        await addDoc(collection(db, "attendance"), {
+        // TAMPILKAN UI SUKSES SECARA INSTAN TANPA MENUNGGU SERVER
+        resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
+
+        // SIMPAN KE CLOUD DI LATAR BELAKANG
+        addDoc(collection(db, "attendance"), {
             namaGuru, email: emailGuru, namaZona, waktu: currentTimeString, status, tanggal: tanggalSQL, hariStr: hariIndo, tanggalStr: tanggalIndo, 
             namaKegiatan: activeSessionData.namaKegiatan, 
             tipeSesi: activeSessionData.tipeSesi, 
             adminPenanggungJawab: activeSessionData.adminNama, 
             timestamp: now.getTime()
         });
-
-        resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
         
     } catch (error) { 
-        resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">ERROR JARINGAN:</strong> ${error.message}</div>`;
+        resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">ERROR SISTEM:</strong> ${error.message}</div>`;
     }
 }
 
