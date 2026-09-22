@@ -568,7 +568,6 @@ window.startScanner = async () => {
     document.getElementById("scan-result").classList.remove("hidden"); 
     document.getElementById("scan-result").innerHTML = "<div style='text-align:center; padding:15px; color:#6b7280; font-weight:bold;'>Kamera aktif. Silakan arahkan ID Card / QR Code ke kamera...</div>";
     
-    // Buat tombol tutup kamera jika belum ada
     let stopBtn = document.getElementById("btn-stop-scan");
     if(!stopBtn) {
         stopBtn = document.createElement("button");
@@ -586,20 +585,23 @@ window.startScanner = async () => {
     html5QrcodeScanner.render(async (decodedText, decodedResult) => {
         const now = Date.now();
         
-        // MENCEGAH DOUBLE SCAN: Jeda 3 detik untuk barcode yang sama
+        // MEMBERSIHKAN TEKS SCAN: Hapus enter, tab, atau spasi gaib dari pembacaan kamera
+        const cleanScannedText = decodedText.toString().trim();
+        
+        // MENCEGAH DOUBLE SCAN: Jeda 3 detik
         if (isProcessingScan) return;
-        if (decodedText === lastScannedText && (now - lastScannedTime < 3000)) return;
+        if (cleanScannedText === lastScannedText && (now - lastScannedTime < 3000)) return;
         
         isProcessingScan = true;
-        lastScannedText = decodedText;
+        lastScannedText = cleanScannedText;
         lastScannedTime = now;
 
-        // Indikator loading warna biru di bawah kamera
         document.getElementById("scan-result").innerHTML = `<div style="background: #eef2ff; padding: 15px; border-radius: 8px; text-align: center; color: #4f46e5; margin-top:20px; font-weight:bold;">⏳ Menyimpan data absen...</div>`;
 
-        await prosesHasilScan(decodedText);
+        // Kirim teks yang sudah 100% bersih ke database
+        await prosesHasilScan(cleanScannedText);
         
-        isProcessingScan = false; // Buka gerbang untuk scan orang selanjutnya
+        isProcessingScan = false; 
     }, (errorMessage) => { /* Abaikan error sensor cahaya kamera */ });
 };
 
@@ -617,6 +619,9 @@ window.stopScanner = () => {
 };
 
 async function prosesHasilScan(scannedText) {
+    // Lapis kedua pembersihan teks
+    const cleanText = scannedText.toString().trim();
+    
     let namaGuru, emailGuru, namaZona;
     const resultDiv = document.getElementById("scan-result");
 
@@ -626,32 +631,32 @@ async function prosesHasilScan(scannedText) {
             const qZone = query(collection(db, "zones"), where("id", "==", selectedZoneId));
             const zoneSnap = await getDocs(qZone);
             
-            const qGuru = query(collection(db, "guru"), where("Barcode", "==", scannedText));
+            // Pencocokan menggunakan cleanText
+            const qGuru = query(collection(db, "guru"), where("Barcode", "==", cleanText));
             const guruSnap = await getDocs(qGuru);
             
             if(guruSnap.empty) {
-                // Tampilan merah jika barcode tidak ada di Excel
-                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode ${scannedText} tidak ada di database Guru.</p></div>`;
+                resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode ${cleanText} tidak ada di database Guru.</p></div>`;
                 return;
             }
             
             const guruData = guruSnap.docs[0].data();
             namaGuru = guruData.Nama;
             emailGuru = guruData.Email;
-            namaZona = zoneSnap.docs[0].data().nama; // Zona tempat admin bertugas
-            const zonaGuruAsli = guruData.Zona; // Zona penugasan asli guru dari database
+            namaZona = zoneSnap.docs[0].data().nama; 
+            const zonaGuruAsli = guruData.Zona; 
 
-            // FITUR BARU: VALIDASI SALAH ZONA (Admin Scan ID Guru)
             if (zonaGuruAsli !== namaZona) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
                     <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
                     <p style="margin:0;">Guru <strong>${namaGuru}</strong> ditugaskan di <strong>${zonaGuruAsli}</strong>, bukan di sini (${namaZona}).<br>Silakan arahkan guru tersebut ke zona yang benar.</p>
                 </div>`;
-                return; // Hentikan proses, jangan simpan absen
+                return; 
             }
 
         } else {
-            const qZone = query(collection(db, "zones"), where("kode", "==", scannedText));
+            // Pencocokan QR Zona menggunakan cleanText
+            const qZone = query(collection(db, "zones"), where("kode", "==", cleanText));
             const zoneSnap = await getDocs(qZone);
             if(zoneSnap.empty) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
@@ -660,15 +665,14 @@ async function prosesHasilScan(scannedText) {
             
             namaGuru = currentUserData.nama;
             emailGuru = currentUserData.email;
-            namaZona = zoneSnap.docs[0].data().nama; // Zona milik QR yang di-scan
+            namaZona = zoneSnap.docs[0].data().nama; 
 
-            // FITUR BARU: VALIDASI SALAH ZONA (Guru Scan QR)
             if (currentUserData.zona !== namaZona) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
                     <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
                     <p style="margin:0;">Anda seharusnya bertugas di zona <strong>${currentUserData.zona}</strong>.<br>Anda tidak diizinkan absen di zona ${namaZona}.</p>
                 </div>`;
-                return; // Hentikan proses
+                return; 
             }
         }
 
@@ -689,12 +693,10 @@ async function prosesHasilScan(scannedText) {
         });
 
         if (sudahAbsen) {
-            // Tampilan Kuning jika guru tersebut nge-scan dua kali
             resultDiv.innerHTML = `<div style="background:#fef3c7; padding:15px; border-radius:8px; border-left:4px solid #d97706; margin-top:20px;"><h3 style="color:#b45309; margin-bottom:5px;">⚠️ SUDAH ABSEN</h3><p style="margin:0;"><strong>${namaGuru}</strong> sudah tercatat hadir pada sesi ini. Lanjut ke peserta berikutnya.</p></div>`;
             return;
         }
 
-        // Simpan ke Cloud
         await addDoc(collection(db, "attendance"), {
             namaGuru, email: emailGuru, namaZona, waktu: currentTimeString, status, tanggal: tanggalSQL, hariStr: hariIndo, tanggalStr: tanggalIndo, 
             namaKegiatan: activeSessionData.namaKegiatan, 
@@ -703,7 +705,6 @@ async function prosesHasilScan(scannedText) {
             timestamp: now.getTime()
         });
 
-        // Tampilan Sukses (Kamera tetap nyala di atasnya)
         resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
         
     } catch (error) { 
@@ -775,13 +776,27 @@ window.handleExcelImport = (event) => {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, {type: 'array'});
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        
+        // raw: false MEMAKSA sistem membaca data persis seperti teks di Excel (tidak memotong titik atau angka 0 di depan)
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { raw: false }); 
         
         let validData = [];
         jsonData.forEach(row => {
             if(row.Barcode && row.Nama && row.Zona && row.Email) {
-                row["No HP"] = row["No HP"] ? row["No HP"].toString() : "-";
-                row["Barcode"] = row["Barcode"].toString();
+                // .trim() membersihkan spasi tak kasat mata di awal/akhir kata
+                // .replace(/\s+/g, ' ') membersihkan double spasi di tengah kalimat
+                row["Barcode"] = row["Barcode"].toString().trim();
+                row["Nama"] = row["Nama"].toString().trim().replace(/\s+/g, ' '); 
+                row["Zona"] = row["Zona"].toString().trim();
+                row["Email"] = row["Email"].toString().trim();
+                row["No HP"] = row["No HP"] ? row["No HP"].toString().trim() : "-";
+                
+                // Pastikan kolom tambahan juga tersimpan bersih
+                if(row["Tahun"]) row["Tahun"] = row["Tahun"].toString().trim();
+                if(row["Kamar"]) row["Kamar"] = row["Kamar"].toString().trim();
+                if(row["Daerah"]) row["Daerah"] = row["Daerah"].toString().trim();
+                if(row["Study"]) row["Study"] = row["Study"].toString().trim();
+                
                 validData.push(row);
             }
         });
@@ -795,6 +810,8 @@ window.handleExcelImport = (event) => {
                 alert("Berhasil mengupload ke server.");
                 renderTabelGuru();
             } catch (error) { alert("Gagal mengupload: " + error.message); }
+        } else {
+            alert("Gagal: Pastikan kolom Barcode, Nama, Zona, dan Email terisi di Excel.");
         }
         event.target.value = ""; 
     };
@@ -860,23 +877,71 @@ window.downloadQRGuru = (barcode, nama) => {
     }, 300);
 };
 
-// --- UPDATE TABEL GURU (MENAMBAHKAN TOMBOL DOWNLOAD QR) ---
+// --- LOGIKA FILTER DATA GURU ---
+let allGuruData = []; // Variabel global untuk menyimpan data guru agar tidak loading terus saat ngetik
+
 async function renderTabelGuru() {
     const tbody = document.getElementById("body-guru");
     tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Memuat...</td></tr>";
     
-    const guruSnap = await getDocs(collection(db, "guru"));
+    try {
+        const guruSnap = await getDocs(collection(db, "guru"));
+        allGuruData = [];
+        
+        guruSnap.forEach((doc) => {
+            let guru = doc.data();
+            guru.docId = doc.id; // Menyimpan ID dokumen untuk hapus/edit
+            allGuruData.push(guru);
+        });
+        
+        if (allGuruData.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Belum ada data guru.</td></tr>";
+            return;
+        }
+        
+        applyGuruFilters(); // Tampilkan tabel setelah data didownload
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan='10' style='text-align:center; color:red;'>Gagal memuat data: ${error.message}</td></tr>`;
+    }
+}
+
+window.applyGuruFilters = () => {
+    const fNama = document.getElementById("filter-guru-nama").value.toLowerCase();
+    const fTahun = document.getElementById("filter-guru-tahun").value.toLowerCase();
+
+    const filteredData = allGuruData.filter(g => {
+        const matchNama = !fNama || (g.Nama && g.Nama.toLowerCase().includes(fNama));
+        const matchTahun = !fTahun || (g.Tahun && g.Tahun.toLowerCase().includes(fTahun));
+        return matchNama && matchTahun;
+    });
+
+    drawGuruTable(filteredData);
+};
+
+window.resetGuruFilters = () => {
+    document.getElementById("filter-guru-nama").value = "";
+    document.getElementById("filter-guru-tahun").value = "";
+    applyGuruFilters();
+};
+
+function drawGuruTable(data) {
+    const tbody = document.getElementById("body-guru");
     tbody.innerHTML = "";
     
-    if (guruSnap.empty) {
-        return tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Belum ada data guru.</td></tr>";
+    if (data.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='10' style='text-align:center; padding:20px;'>Tidak ada guru yang sesuai dengan pencarian.</td></tr>";
+        return;
     }
     
     let idx = 1;
-    guruSnap.forEach((doc) => {
-        let guru = doc.data();
-        let barcodeId = doc.id; 
-        
+    data.forEach((guru) => {
+        // Mengamankan tanda petik (') dan (") agar fungsi pada tombol tidak terputus/error
+        let safeNama = guru.Nama ? guru.Nama.toString().replace(/'/g, "\\'").replace(/"/g, "&quot;") : "-";
+        let safeBarcode = guru.Barcode ? guru.Barcode.toString().replace(/'/g, "\\'") : "-";
+        let safeZona = guru.Zona ? guru.Zona.toString().replace(/'/g, "\\'") : "-";
+        let safeEmail = guru.Email ? guru.Email.toString().replace(/'/g, "\\'") : "-";
+        let safeKamar = guru.Kamar ? guru.Kamar.toString().replace(/'/g, "\\'") : "-";
+
         tbody.innerHTML += `<tr>
             <td>${idx++}</td>
             <td>${guru.Barcode}</td>
@@ -888,9 +953,9 @@ async function renderTabelGuru() {
             <td>${guru["No HP"]}</td>
             <td>${guru.Zona}</td>
             <td>
-                <button onclick="downloadQRGuru('${guru.Barcode}', '${guru.Nama}')" style="background:#10b981; color:#fff; border:none; padding:5px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:5px; display:block; width:100%; font-weight:bold;">Unduh QR</button>
-                <button onclick="editGuru('${barcodeId}', '${guru.Nama}', '${guru.Zona}', '${guru.Email}', '${guru.Kamar}')" style="background:#f59e0b; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:5px; display:block; width:100%;">Edit</button>
-                <button onclick="hapusGuru('${barcodeId}', '${guru.Nama}')" style="background:#dc2626; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; display:block; width:100%;">Hapus</button>
+                <button onclick="downloadQRGuru('${safeBarcode}', '${safeNama}')" style="background:#10b981; color:#fff; border:none; padding:5px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:5px; display:block; width:100%; font-weight:bold;">Unduh QR</button>
+                <button onclick="editGuru('${guru.docId}', '${safeNama}', '${safeZona}', '${safeEmail}', '${safeKamar}')" style="background:#f59e0b; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; margin-bottom:5px; display:block; width:100%;">Edit</button>
+                <button onclick="hapusGuru('${guru.docId}', '${safeNama}')" style="background:#dc2626; color:#fff; border:none; padding:4px 6px; border-radius:4px; cursor:pointer; font-size:0.7rem; display:block; width:100%;">Hapus</button>
             </td>
         </tr>`;
     });
@@ -1039,7 +1104,14 @@ async function getRekapWithAbsentees() {
     const guruSnap = await getDocs(collection(db, "guru"));
 
     let allGuru = [];
-    guruSnap.forEach(doc => allGuru.push(doc.data()));
+    let mapTahunGuru = {}; // Tempat menyimpan mapping Tahun dari database Guru
+
+    guruSnap.forEach(doc => {
+        let data = doc.data();
+        allGuru.push(data);
+        // Simpan tahun berdasarkan email agar mudah dicocokkan
+        mapTahunGuru[data.Email] = data.Tahun || "-"; 
+    });
 
     let dataRekap = [];
     let uniqueSessions = {}; 
@@ -1048,6 +1120,10 @@ async function getRekapWithAbsentees() {
         let d = doc.data();
         d.docId = doc.id;           
         d.isVirtual = false;        
+        
+        // Tarik atribut Tahun menggunakan email guru yang bersangkutan
+        d.tahunGuru = mapTahunGuru[d.email] || "-";
+
         dataRekap.push(d);
         
         let sessionKey = `${d.tanggal}_${d.namaKegiatan}_${d.tipeSesi}`;
@@ -1068,7 +1144,9 @@ async function getRekapWithAbsentees() {
                 dataRekap.push({
                     isVirtual: true, email: guru.Email,
                     tanggal: session.tanggal, hariStr: session.hariStr, tanggalStr: session.tanggalStr, waktu: "-",
-                    namaKegiatan: session.namaKegiatan, tipeSesi: session.tipeSesi, namaGuru: guru.Nama, namaZona: guru.Zona || "-",
+                    namaKegiatan: session.namaKegiatan, tipeSesi: session.tipeSesi, namaGuru: guru.Nama, 
+                    tahunGuru: guru.Tahun || "-", // Masukkan atribut Tahun untuk guru yang alpa
+                    namaZona: guru.Zona || "-",
                     status: "Tidak Hadir", adminPenanggungJawab: session.adminPenanggungJawab, timestamp: session.timestamp - 1 
                 });
             }
@@ -1225,7 +1303,6 @@ function drawRekapTable(data) {
     const tbody = document.getElementById("body-rekap");
     tbody.innerHTML = "";
     
-    // Reset status "Check All" & sembunyikan tombol Hapus Masal tiap kali tabel dimuat ulang
     const checkAll = document.getElementById("check-all");
     if(checkAll) checkAll.checked = false;
     if(document.getElementById("btn-bulk-delete")) document.getElementById("btn-bulk-delete").classList.add("hidden");
@@ -1242,7 +1319,6 @@ function drawRekapTable(data) {
         else if (d.status === 'Izin' || d.status === 'Sakit') badgeStyle = "background:#fef08a; color:#a16207;"; 
         else badgeStyle = "background:#fee2e2; color:#dc2626;"; 
 
-        // Kunci Checkbox & Tombol Hapus jika data adalah Virtual (Sudah Tidak Hadir)
         const isVirtual = d.isVirtual;
         const checkboxHTML = isVirtual ? `<input type="checkbox" disabled style="opacity: 0.3;">` : `<input type="checkbox" class="check-rekap" value="${index}" onchange="updateBulkDeleteButton()" style="transform: scale(1.2); cursor: pointer;">`;
         const btnHapusHTML = isVirtual ? 
@@ -1255,7 +1331,10 @@ function drawRekapTable(data) {
             <td>${d.waktu}</td>
             <td><strong>${d.namaKegiatan}</strong></td>
             <td><span style="background:#eef2ff; color:#4f46e5; padding:3px 8px; border-radius:4px; font-size:0.85rem;">${d.tipeSesi}</span></td>
-            <td><strong>${d.namaGuru}</strong></td>
+            <td>
+                <strong>${d.namaGuru}</strong><br>
+                <span style="font-size: 0.75rem; color: #6b7280;">Tahun: ${d.tahunGuru}</span>
+            </td>
             <td>${d.namaZona}</td>
             <td><span class="badge" style="${badgeStyle}">${d.status}</span></td>
             <td>${d.adminPenanggungJawab}</td>
@@ -1369,6 +1448,7 @@ window.exportRekapToExcel = async () => {
             "Nama Kegiatan": d.namaKegiatan, 
             "Tahap Absensi": d.tipeSesi, 
             "Nama Guru": d.namaGuru, 
+            "Tahun": d.tahunGuru,  // <--- KOLOM TAHUN KINI BERADA DI SINI
             "Zona": d.namaZona, 
             "Status": d.status, 
             "Admin Bertugas": d.adminPenanggungJawab
