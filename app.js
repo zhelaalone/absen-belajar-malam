@@ -287,7 +287,8 @@ window.logout = () => {
 
 // --- 2. NAVIGASI ---
 window.navigate = (pageId) => {
-    if (currentUserData.role !== "ADMIN" && (pageId === "guru" || pageId === "zona" || pageId === "rekap" || pageId === "setting")) return;
+    // Izinkan guru mengakses halaman dashboard, scan, dan qr
+    if (currentUserData.role !== "ADMIN" && pageId !== "dashboard" && pageId !== "scan" && pageId !== "qr") return;
     if (pageId === "setting" && currentUserData.email !== "zhelaal.one@gmail.com") return alert("Akses Ditolak! Hanya Developer yang bisa membuka menu ini.");
 
     document.querySelectorAll(".page").forEach(page => page.classList.add("hidden"));
@@ -300,6 +301,7 @@ window.navigate = (pageId) => {
     }
 
     if (pageId === "scan") setupScannerUI();
+    if (pageId === "qr") renderMyQR(); // <-- RENDER QR PERSONAL GURU
     if (pageId === "rekap" && currentUserData.role === "ADMIN") renderRekap();
     if (pageId === "setting" && currentUserData.email === "zhelaal.one@gmail.com") renderDaftarAdmin();
     if (pageId === "dashboard") initDashboardRealtime();
@@ -1563,3 +1565,79 @@ setInterval(() => {
 
 initSystem();
 checkLoginStatus();
+
+// --- FUNGSI TAMPIL & DOWNLOAD QR PERSONAL GURU ---
+window.renderMyQR = () => {
+    if (!currentUserData) return;
+    const container = document.getElementById("my-qr-container");
+    if (!container) return;
+    
+    // Menggunakan currentUserData.uid yang berisi Barcode asli guru (tidak berubah-ubah)
+    const barcodeAsli = currentUserData.uid;
+    const namaGuru = currentUserData.nama;
+
+    container.innerHTML = `
+        <div style="text-align: center; padding: 25px; background: #fff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 350px; margin: 20px auto;">
+            <h3 style="margin-bottom: 5px; color: #1f2937;">${namaGuru}</h3>
+            <p style="font-size: 0.85rem; color: #6b7280; margin-bottom: 20px;">ID / Barcode: <strong>${barcodeAsli}</strong></p>
+            <div id="qrcode-personal" style="display: flex; justify-content: center; margin-bottom: 20px;"></div>
+            <button onclick="downloadMyQR('${barcodeAsli}', '${namaGuru}')" style="background:#10b981; color:#fff; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-size:0.9rem; font-weight:bold; width:100%;">Unduh Kartu QR Saya</button>
+        </div>
+    `;
+    
+    const qrDiv = document.getElementById("qrcode-personal");
+    qrDiv.innerHTML = "";
+    new QRCode(qrDiv, {
+        text: barcodeAsli, // Menggunakan Barcode permanen yang sudah dibagikan
+        width: 200,
+        height: 200,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H
+    });
+};
+
+window.downloadMyQR = (barcode, nama) => {
+    const tempDiv = document.createElement("div");
+    tempDiv.style.display = "none";
+    document.body.appendChild(tempDiv);
+
+    new QRCode(tempDiv, {
+        text: barcode,
+        width: 300,
+        height: 300,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H
+    });
+
+    setTimeout(() => {
+        const qrCanvas = tempDiv.querySelector("canvas");
+        if (qrCanvas) {
+            const finalCanvas = document.createElement("canvas");
+            finalCanvas.width = 350;
+            finalCanvas.height = 420;
+            const ctx = finalCanvas.getContext("2d");
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+            ctx.drawImage(qrCanvas, 25, 20, 300, 300);
+
+            ctx.fillStyle = "#1f2937";
+            ctx.font = "bold 22px sans-serif";
+            ctx.textAlign = "center";
+            let displayName = nama.length > 25 ? nama.substring(0, 25) + "..." : nama;
+            ctx.fillText(displayName, finalCanvas.width / 2, 355);
+            
+            ctx.font = "14px sans-serif";
+            ctx.fillStyle = "#6b7280";
+            ctx.fillText("ID: " + barcode, finalCanvas.width / 2, 385);
+
+            const link = document.createElement("a");
+            link.download = `QR_Saya_${nama.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+            link.href = finalCanvas.toDataURL("image/png");
+            link.click();
+        }
+        document.body.removeChild(tempDiv);
+    }, 300);
+};
