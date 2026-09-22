@@ -645,35 +645,59 @@ window.stopScanner = () => {
 };
 
 async function prosesHasilScan(cleanText) {
+    // --- PEMBERSIHAN MUTLAK: Buang spasi, tab, atau karakter tersembunyi dari hasil scan ---
+    const barcodeInput = cleanText ? cleanText.toString().trim() : "";
+    
     let namaGuru, emailGuru, namaZona;
     const resultDiv = document.getElementById("scan-result");
 
     try {
         if (currentUserData.role === "ADMIN") {
             const selectedZoneId = document.getElementById("pic-zone-select").value;
-            
             let zoneData = localZoneCache.get(selectedZoneId);
-            let guruData = localGuruCache.get(cleanText);
             
-            // --- PERBAIKAN: JIKA DI MEMORI LOKAL TIDAK ADA, CEK KE SERVER CLOUD ---
+            // --- CARI GURU DI MEMORI LOKAL DENGAN PEMERIKSAAN FLEKSIBEL ---
+            let guruData = null;
+            for (let [key, value] of localGuruCache.entries()) {
+                if (key.toLowerCase() === barcodeInput.toLowerCase()) {
+                    guruData = value;
+                    break;
+                }
+            }
+            
+            // --- JIKA DI MEMORI TIDAK KETEMU, CARI LANGSUNG KE SERVER CLOUD ---
             if(!guruData) {
-                const qGuru = query(collection(db, "guru"), where("Barcode", "==", cleanText));
+                const qGuru = query(collection(db, "guru"), where("Barcode", "==", barcodeInput));
                 const guruSnap = await getDocs(qGuru);
                 if (!guruSnap.empty) {
                     guruData = guruSnap.docs[0].data();
-                    localGuruCache.set(cleanText, guruData); // Simpan ke memori lokal agar scan berikutnya instan
+                    localGuruCache.set(barcodeInput, guruData); // Simpan ke cache
                 } else {
-                    resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode ${cleanText} tidak ada di database Guru.</p></div>`;
-                    return;
+                    // Coba pencarian toleransi spasi jika masih gagal
+                    const allG = await getDocs(collection(db, "guru"));
+                    let foundDoc = null;
+                    allG.forEach(d => {
+                        let bCode = d.data().Barcode ? d.data().Barcode.toString().trim() : "";
+                        if (bCode.toLowerCase() === barcodeInput.toLowerCase()) {
+                            foundDoc = d.data();
+                        }
+                    });
+                    
+                    if (foundDoc) {
+                        guruData = foundDoc;
+                    } else {
+                        resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode "${barcodeInput}" tidak ada di database Guru.</p></div>`;
+                        return;
+                    }
                 }
             }
             
             namaGuru = guruData.Nama;
             emailGuru = guruData.Email;
             namaZona = zoneData.nama; 
-            const zonaGuruAsli = guruData.Zona; 
+            const zonaGuruAsli = guruData.Zona ? guruData.Zona.toString().trim() : ""; 
 
-            if (zonaGuruAsli !== namaZona) {
+            if (zonaGuruAsli.toLowerCase() !== namaZona.toLowerCase()) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
                     <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
                     <p style="margin:0;">Guru <strong>${namaGuru}</strong> ditugaskan di <strong>${zonaGuruAsli}</strong>, bukan di sini (${namaZona}).<br>Silakan arahkan guru tersebut ke zona yang benar.</p>
@@ -682,15 +706,21 @@ async function prosesHasilScan(cleanText) {
             }
 
         } else {
-            let zoneData = localZoneCache.get(cleanText);
+            // Untuk Guru yang scan QR Zona
+            let zoneData = null;
+            for (let [key, value] of localZoneCache.entries()) {
+                if (key.toLowerCase() === barcodeInput.toLowerCase()) {
+                    zoneData = value;
+                    break;
+                }
+            }
             
-            // --- PERBAIKAN: JIKA DI MEMORI LOKAL TIDAK ADA, CEK KE SERVER CLOUD ---
             if(!zoneData) {
-                const qZone = query(collection(db, "zones"), where("kode", "==", cleanText));
+                const qZone = query(collection(db, "zones"), where("kode", "==", barcodeInput));
                 const zoneSnap = await getDocs(qZone);
                 if (!zoneSnap.empty) {
                     zoneData = zoneSnap.docs[0].data();
-                    localZoneCache.set(cleanText, zoneData); // Simpan ke memori lokal agar scan berikutnya instan
+                    localZoneCache.set(barcodeInput, zoneData);
                 } else {
                     resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
                     return;
@@ -701,7 +731,7 @@ async function prosesHasilScan(cleanText) {
             emailGuru = currentUserData.email;
             namaZona = zoneData.nama; 
 
-            if (currentUserData.zona !== namaZona) {
+            if (currentUserData.zona && currentUserData.zona.toLowerCase() !== namaZona.toLowerCase()) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
                     <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
                     <p style="margin:0;">Anda seharusnya bertugas di zona <strong>${currentUserData.zona}</strong>.<br>Anda tidak diizinkan absen di zona ${namaZona}.</p>
@@ -731,7 +761,7 @@ async function prosesHasilScan(cleanText) {
             return;
         }
 
-        // TAMPILKAN UI SUKSES SECARA INSTAN TANPA MENUNGGU SERVER
+        // TAMPILKAN UI SUKSES SECARA INSTAN
         resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
 
         // SIMPAN KE CLOUD DI LATAR BELAKANG
