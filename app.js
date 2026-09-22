@@ -35,6 +35,9 @@ const DEFAULT_ZONES = [
     { id: "AUDITORIUM", nama: "Auditorium", kode: "QR_AUDITORIUM" }
 ];
 
+let globalZoneMap = new Map();
+let globalGuruMap = new Map();
+
 async function initSystem() {
     try {
         const zoneSnap = await getDocs(collection(db, "zones"));
@@ -44,7 +47,7 @@ async function initSystem() {
             await batch.commit();
         }
 
-        // Sinkronisasi zona dari data guru
+        // Sinkronisasi zona otomatis dari data guru
         const guruSnap = await getDocs(collection(db, "guru"));
         if (!guruSnap.empty) {
             let existingZonesMap = new Map();
@@ -75,20 +78,28 @@ async function initSystem() {
             }
         }
 
-        // --- TAMBAHAN PENTING: AUTO-SYNC ZONA REALTIME ---
-        // Jika ada admin yang me-refresh QR, memori lokal HP semua admin lain langsung diperbarui detik itu juga
+        // Real-time listener untuk Zona
         onSnapshot(collection(db, "zones"), (snapshot) => {
-            localZoneCache = new Map();
+            globalZoneMap.clear();
             snapshot.forEach(docSnap => {
                 const d = docSnap.data();
-                localZoneCache.set(d.kode.toString().trim(), d);
-                localZoneCache.set(d.id.toString().trim(), d);
+                if(d.kode) globalZoneMap.set(d.kode.toString().trim(), d);
+                if(d.id) globalZoneMap.set(d.id.toString().trim(), d);
+                if(d.nama) globalZoneMap.set(d.nama.toLowerCase().trim(), d);
             });
-            console.log("Cache zona diperbarui otomatis secara real-time.");
+        });
+
+        // Real-time listener untuk Guru
+        onSnapshot(collection(db, "guru"), (snapshot) => {
+            globalGuruMap.clear();
+            snapshot.forEach(docSnap => {
+                const d = docSnap.data();
+                if(d.Barcode) globalGuruMap.set(d.Barcode.toString().trim(), d);
+            });
         });
 
     } catch (e) {
-        console.error("Gagal sinkronisasi sistem zona:", e);
+        console.error("Gagal sinkronisasi sistem:", e);
     }
 }
 
@@ -630,7 +641,7 @@ window.startScanner = async () => {
         
         // MENCEGAH DOUBLE SCAN: Jeda 3 detik
         if (isProcessingScan) return;
-        if (cleanScannedText === lastScannedText && (now - lastScannedTime < 3000)) return;
+        if (cleanScannedText === lastScannedText && (now - lastScannedTime < 1000)) return;
         
         isProcessingScan = true;
         lastScannedText = cleanScannedText;
@@ -657,63 +668,49 @@ window.stopScanner = () => {
     document.getElementById("scan-result").classList.add("hidden"); 
 };
 
+
 async function prosesHasilScan(cleanText) {
-    // --- PEMBERSIHAN MUTLAK: Buang spasi, tab, atau karakter tersembunyi dari hasil scan ---
     const barcodeInput = cleanText ? cleanText.toString().trim() : "";
-    
     let namaGuru, emailGuru, namaZona;
     const resultDiv = document.getElementById("scan-result");
 
     try {
         if (currentUserData.role === "ADMIN") {
             const selectedZoneId = document.getElementById("pic-zone-select").value;
-            let zoneData = localZoneCache.get(selectedZoneId);
+            let zoneData = globalZoneMap.get(selectedZoneId);
             
-            // --- CARI GURU DI MEMORI LOKAL DENGAN PEMERIKSAAN FLEKSIBEL ---
-            let guruData = null;
-            for (let [key, value] of localGuruCache.entries()) {
-                if (key.toLowerCase() === barcodeInput.toLowerCase()) {
-                    guruData = value;
-                    break;
+            // --- FALLBACK CLOUD: Jika zona belum masuk memori lokal, tarik langsung dari Firestore ---
+            if (!zoneData) {
+                const qZone = query(collection(db, "zones"), where("id", "==", selectedZoneId));
+                const zoneSnap = await getDocs(qZone);
+                if (!zoneSnap.empty) {
+                    zoneData = zoneSnap.docs[0].data();
                 }
             }
-            
-            // --- JIKA DI MEMORI TIDAK KETEMU, CARI LANGSUNG KE SERVER CLOUD ---
+
+            let guruData = globalGuruMap.get(barcodeInput);
+
+            // Fallback cadangan langsung ke cloud jika data guru belum masuk memori lokal
             if(!guruData) {
                 const qGuru = query(collection(db, "guru"), where("Barcode", "==", barcodeInput));
                 const guruSnap = await getDocs(qGuru);
                 if (!guruSnap.empty) {
                     guruData = guruSnap.docs[0].data();
-                    localGuruCache.set(barcodeInput, guruData); // Simpan ke cache
                 } else {
-                    // Coba pencarian toleransi spasi jika masih gagal
-                    const allG = await getDocs(collection(db, "guru"));
-                    let foundDoc = null;
-                    allG.forEach(d => {
-                        let bCode = d.data().Barcode ? d.data().Barcode.toString().trim() : "";
-                        if (bCode.toLowerCase() === barcodeInput.toLowerCase()) {
-                            foundDoc = d.data();
-                        }
-                    });
-                    
-                    if (foundDoc) {
-                        guruData = foundDoc;
-                    } else {
-                        resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode "${barcodeInput}" tidak ada di database Guru.</p></div>`;
-                        return;
-                    }
+                    resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger); font-size:1.1rem;">❌ GAGAL: Barcode Tidak Terdaftar!</strong><p style="margin:5px 0 0 0;">Barcode "${barcodeInput}" tidak ada di database Guru.</p></div>`;
+                    return;
                 }
             }
-            
+
             namaGuru = guruData.Nama;
             emailGuru = guruData.Email;
-            namaZona = zoneData.nama; 
+            namaZona = zoneData ? zoneData.nama : "Zona"; 
             const zonaGuruAsli = guruData.Zona ? guruData.Zona.toString().trim() : ""; 
 
             if (zonaGuruAsli.toLowerCase() !== namaZona.toLowerCase()) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
                     <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
-                    <p style="margin:0;">Guru <strong>${namaGuru}</strong> ditugaskan di <strong>${zonaGuruAsli}</strong>, bukan di sini (${namaZona}).<br>Silakan arahkan guru tersebut ke zona yang benar.</p>
+                    <p style="margin:0;">Guru <strong>${namaGuru}</strong> ditugaskan di <strong>${zonaGuruAsli}</strong>, bukan di sini (${namaZona}).</p>
                 </div>`;
                 return; 
             }
@@ -721,25 +718,24 @@ async function prosesHasilScan(cleanText) {
         } else {
             // Untuk Guru yang scan QR Zona
             let zoneData = null;
-            for (let [key, value] of localZoneCache.entries()) {
+            for (let [key, value] of globalZoneMap.entries()) {
                 if (key.toLowerCase() === barcodeInput.toLowerCase()) {
                     zoneData = value;
                     break;
                 }
             }
-            
+
             if(!zoneData) {
                 const qZone = query(collection(db, "zones"), where("kode", "==", barcodeInput));
                 const zoneSnap = await getDocs(qZone);
                 if (!zoneSnap.empty) {
                     zoneData = zoneSnap.docs[0].data();
-                    localZoneCache.set(barcodeInput, zoneData);
                 } else {
-                    resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL:</strong> QR Code Zona tidak valid!</div>`;
+                    resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">❌ GAGAL: QR Code Zona tidak valid atau telah diperbarui!</strong></div>`;
                     return;
                 }
             }
-            
+
             namaGuru = currentUserData.nama;
             emailGuru = currentUserData.email;
             namaZona = zoneData.nama; 
@@ -747,7 +743,7 @@ async function prosesHasilScan(cleanText) {
             if (currentUserData.zona && currentUserData.zona.toLowerCase() !== namaZona.toLowerCase()) {
                 resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;">
                     <h3 style="color:var(--danger); margin-bottom:5px;">❌ SALAH ZONA TUGAS!</h3>
-                    <p style="margin:0;">Anda seharusnya bertugas di zona <strong>${currentUserData.zona}</strong>.<br>Anda tidak diizinkan absen di zona ${namaZona}.</p>
+                    <p style="margin:0;">Anda seharusnya bertugas di zona <strong>${currentUserData.zona}</strong>.</p>
                 </div>`;
                 return; 
             }
@@ -770,14 +766,12 @@ async function prosesHasilScan(cleanText) {
         });
 
         if (sudahAbsen) {
-            resultDiv.innerHTML = `<div style="background:#fef3c7; padding:15px; border-radius:8px; border-left:4px solid #d97706; margin-top:20px;"><h3 style="color:#b45309; margin-bottom:5px;">⚠️ SUDAH ABSEN</h3><p style="margin:0;"><strong>${namaGuru}</strong> sudah tercatat hadir pada sesi ini. Lanjut ke peserta berikutnya.</p></div>`;
+            resultDiv.innerHTML = `<div style="background:#fef3c7; padding:15px; border-radius:8px; border-left:4px solid #d97706; margin-top:20px;"><h3 style="color:#b45309; margin-bottom:5px;">⚠️ SUDAH ABSEN</h3><p style="margin:0;"><strong>${namaGuru}</strong> sudah tercatat hadir pada sesi ini.</p></div>`;
             return;
         }
 
-        // TAMPILKAN UI SUKSES SECARA INSTAN
         resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
 
-        // SIMPAN KE CLOUD DI LATAR BELAKANG
         addDoc(collection(db, "attendance"), {
             namaGuru, email: emailGuru, namaZona, waktu: currentTimeString, status, tanggal: tanggalSQL, hariStr: hariIndo, tanggalStr: tanggalIndo, 
             namaKegiatan: activeSessionData.namaKegiatan, 
@@ -790,6 +784,7 @@ async function prosesHasilScan(cleanText) {
         resultDiv.innerHTML = `<div style="background:#fee2e2; padding:15px; border-radius:8px; border-left:4px solid var(--danger); margin-top:20px;"><strong style="color:var(--danger);">ERROR SISTEM:</strong> ${error.message}</div>`;
     }
 }
+
 
 // --- 7. DATA GURU: EDIT, HAPUS, & IMPORT ---
 window.hapusGuru = async (barcode, nama) => {
@@ -1143,7 +1138,7 @@ window.downloadQRZona = (kodeZona, namaZona) => {
 window.refreshSemuaQRZona = async () => {
     if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
     
-    // --- VALIDASI BARU: HANYA ADMIN PJ SESI ATAU SUPER ADMIN YANG BISA REFRESH ---
+    // Validasi: Hanya Super Admin atau Admin yang membuka sesi aktif yang boleh mereset
     const isSuperAdmin = currentUserData.email === "zhelaal.one@gmail.com";
     const isOpenSessionAdmin = activeSessionData && activeSessionData.isActive && activeSessionData.adminNama === currentUserData.nama;
 
@@ -1151,7 +1146,7 @@ window.refreshSemuaQRZona = async () => {
         return alert("GAGAL: Anda tidak dapat mereset QR karena Anda bukan Admin yang membuka sesi absensi aktif saat ini!");
     }
 
-    if (!confirm("PERINGATAN ANTI-KECURANGAN:\n\nAnda akan mereset dan MENGGANTI SEMUA QR Code Zona. QR Code yang lama (maupun foto yang disimpan guru) akan HANGUS dan otomatis ditolak oleh sistem.\n\nYakin ingin mereset sekarang?")) return;
+    if (!confirm("PERINGATAN ANTI-KECURANGAN:\n\nAnda akan mereset dan MENGGANTI SEMUA QR Code Zona. QR Code yang lama akan HANGUS dan otomatis diperbarui secara real-time di seluruh perangkat admin.\n\nYakin ingin mereset sekarang?")) return;
 
     const btn = document.getElementById("btn-refresh-qr");
     if(btn) { btn.innerText = "Mereset..."; btn.disabled = true; }
@@ -1164,12 +1159,11 @@ window.refreshSemuaQRZona = async () => {
             const data = docSnap.data();
             const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
             const newKode = `QR_${data.id}_${randomStr}`; 
-
             batch.update(doc(db, "zones", docSnap.id), { kode: newKode });
         });
 
         await batch.commit();
-        alert("SUKSES: Semua QR Code Zona telah diperbarui!\n\nGuru yang mencoba scan pakai foto QR lama akan langsung DITOLAK. Silakan unduh/tampilkan QR yang baru.");
+        alert("SUKSES: Semua QR Code Zona telah diperbarui! Perangkat admin lain otomatis tersinkronisasi tanpa perlu refresh web.");
         
         renderManajemenZona(); 
     } catch (error) {
@@ -1181,17 +1175,27 @@ window.refreshSemuaQRZona = async () => {
 
 
 // --- 8. FUNGSI LOGIKA REKAP OTOMATIS & KONFIRMASI STATUS UI (MODAL) ---
-async function getRekapWithAbsentees() {
-    const attSnap = await getDocs(collection(db, "attendance"));
+async function getRekapWithAbsentees(tanggalFilter = "") {
+    let attRef = collection(db, "attendance");
+    let qAtt = attRef;
+    
+    // --- OPTIMASI SKALABILITAS: Batasi query berdasarkan tanggal yang dipilih atau hari ini ---
+    if (tanggalFilter) {
+        qAtt = query(attRef, where("tanggal", "==", tanggalFilter));
+    } else {
+        const today = new Date().toISOString().split('T')[0];
+        qAtt = query(attRef, where("tanggal", "==", today));
+    }
+
+    const attSnap = await getDocs(qAtt);
     const guruSnap = await getDocs(collection(db, "guru"));
 
     let allGuru = [];
-    let mapTahunGuru = {}; // Tempat menyimpan mapping Tahun dari database Guru
+    let mapTahunGuru = {}; 
 
     guruSnap.forEach(doc => {
         let data = doc.data();
         allGuru.push(data);
-        // Simpan tahun berdasarkan email agar mudah dicocokkan
         mapTahunGuru[data.Email] = data.Tahun || "-"; 
     });
 
@@ -1202,8 +1206,6 @@ async function getRekapWithAbsentees() {
         let d = doc.data();
         d.docId = doc.id;           
         d.isVirtual = false;        
-        
-        // Tarik atribut Tahun menggunakan email guru yang bersangkutan
         d.tahunGuru = mapTahunGuru[d.email] || "-";
 
         dataRekap.push(d);
@@ -1227,7 +1229,7 @@ async function getRekapWithAbsentees() {
                     isVirtual: true, email: guru.Email,
                     tanggal: session.tanggal, hariStr: session.hariStr, tanggalStr: session.tanggalStr, waktu: "-",
                     namaKegiatan: session.namaKegiatan, tipeSesi: session.tipeSesi, namaGuru: guru.Nama, 
-                    tahunGuru: guru.Tahun || "-", // Masukkan atribut Tahun untuk guru yang alpa
+                    tahunGuru: guru.Tahun || "-", 
                     namaZona: guru.Zona || "-",
                     status: "Tidak Hadir", adminPenanggungJawab: session.adminPenanggungJawab, timestamp: session.timestamp - 1 
                 });
@@ -1243,7 +1245,8 @@ async function renderRekap() {
     const tbody = document.getElementById("body-rekap");
     tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Mengkalkulasi kehadiran dan alpa dari server...</td></tr>";
     try {
-        allRekapData = await getRekapWithAbsentees();
+        const fTanggal = document.getElementById("filter-tanggal").value;
+        allRekapData = await getRekapWithAbsentees(fTanggal);
         filteredRekapData = [...allRekapData]; 
         
         window.applyFilters(); 
