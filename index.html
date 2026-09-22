@@ -77,6 +77,7 @@
             <ul class="nav-links">
                 <li><a href="#" onclick="navigate('dashboard')">Dashboard</a></li>
                 <li><a href="#" onclick="navigate('scan')">Scan Barcode</a></li>
+                <li><a href="#" onclick="navigate('qr')">QR Saya</a></li>
                 <li class="admin-only hidden"><a href="#" onclick="navigate('guru')">Data Guru</a></li>
                 <li class="admin-only hidden"><a href="#" onclick="navigate('zona')">Manajemen Zona</a></li>
                 <li class="admin-only hidden"><a href="#" onclick="navigate('rekap')">Rekap</a></li>
@@ -182,6 +183,20 @@
                         <div id="scan-result" class="scan-result hidden"></div>
                     </div>
                 </div>
+            </div>
+
+            <!-- TAMBAHAN HALAMAN: QR SAYA -->
+            <div id="page-qr" class="page hidden">
+                <div class="section-header">
+                    <h3>QR Code Personal Anda</h3>
+                </div>
+                <p style="color: #6b7280; margin-bottom: 20px;">Gunakan QR Code di bawah ini untuk melakukan absensi pada sesi yang sedang dibuka oleh admin.</p>
+                <div id="my-qr-container"></div>
+            </div>
+
+            <!-- DATA GURU -->
+            <div id="page-guru" class="page hidden admin-only">
+                <!-- (isi halaman guru tetap seperti sebelumnya) -->
             </div>
 
             <!-- DATA GURU -->
