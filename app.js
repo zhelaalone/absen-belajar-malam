@@ -1383,10 +1383,9 @@ window.applyFilters = () => {
     drawRekapTable(filteredRekapData);
 };
 
-// --- RENDER TABEL REKAP & LOGIKA CHECKBOX HAPUS ---
+// --- RENDER TABEL REKAP & LOGIKA CHECKBOX HAPUS (DIOPTIMASI AGAR TIDAK LAG) ---
 function drawRekapTable(data) {
     const tbody = document.getElementById("body-rekap");
-    tbody.innerHTML = "";
     
     const checkAll = document.getElementById("check-all");
     if(checkAll) checkAll.checked = false;
@@ -1397,7 +1396,8 @@ function drawRekapTable(data) {
         return;
     }
 
-    data.forEach((d, index) => {
+    // Menggunakan .map().join('') agar browser tidak lag saat merender ratusan baris sekaligus
+    const htmlRows = data.map((d, index) => {
         let badgeStyle = "";
         if (d.status === 'Tepat Waktu') badgeStyle = "background:#d1fae5; color:#059669;";
         else if (d.status === 'Terlambat') badgeStyle = "background:#ffedd5; color:#ea580c;";
@@ -1410,7 +1410,7 @@ function drawRekapTable(data) {
             `<button disabled style="background:#fca5a5; color:#fff; border:none; padding:5px 8px; border-radius:6px; font-size:0.75rem; cursor:not-allowed; opacity: 0.7;">Hapus</button>` : 
             `<button onclick="hapusSatuRekap(${index})" style="background:#dc2626; color:#fff; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:0.75rem;">Hapus</button>`;
 
-        tbody.innerHTML += `<tr>
+        return `<tr>
             <td style="text-align: center;">${checkboxHTML}</td>
             <td><strong>${d.hariStr}</strong>, ${d.tanggalStr}</td>
             <td>${d.waktu}</td>
@@ -1428,7 +1428,9 @@ function drawRekapTable(data) {
                 ${btnHapusHTML}
             </td>
         </tr>`;
-    });
+    }).join('');
+
+    tbody.innerHTML = htmlRows;
 }
 
 // Fitur Centang Semua Checkbox
