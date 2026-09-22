@@ -1140,10 +1140,17 @@ window.downloadQRZona = (kodeZona, namaZona) => {
     }, 300);
 };
 
-// --- FUNGSI BARU: REFRESH SEMUA QR ZONA (ANTI-KECURANGAN) ---
 window.refreshSemuaQRZona = async () => {
     if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
     
+    // --- VALIDASI BARU: HANYA ADMIN PJ SESI ATAU SUPER ADMIN YANG BISA REFRESH ---
+    const isSuperAdmin = currentUserData.email === "zhelaal.one@gmail.com";
+    const isOpenSessionAdmin = activeSessionData && activeSessionData.isActive && activeSessionData.adminNama === currentUserData.nama;
+
+    if (!isSuperAdmin && !isOpenSessionAdmin) {
+        return alert("GAGAL: Anda tidak dapat mereset QR karena Anda bukan Admin yang membuka sesi absensi aktif saat ini!");
+    }
+
     if (!confirm("PERINGATAN ANTI-KECURANGAN:\n\nAnda akan mereset dan MENGGANTI SEMUA QR Code Zona. QR Code yang lama (maupun foto yang disimpan guru) akan HANGUS dan otomatis ditolak oleh sistem.\n\nYakin ingin mereset sekarang?")) return;
 
     const btn = document.getElementById("btn-refresh-qr");
@@ -1151,15 +1158,11 @@ window.refreshSemuaQRZona = async () => {
 
     try {
         const zonesSnap = await getDocs(collection(db, "zones"));
-        const batch = writeBatch(db); // Gunakan batch agar update ke database terjadi serentak
+        const batch = writeBatch(db); 
 
         zonesSnap.forEach(docSnap => {
             const data = docSnap.data();
-            
-            // Generate 6 kode acak baru (Kombinasi huruf kapital & angka)
             const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
-            
-            // Format kode baru: "QR_G_RIYADH_A8F2K9"
             const newKode = `QR_${data.id}_${randomStr}`; 
 
             batch.update(doc(db, "zones", docSnap.id), { kode: newKode });
@@ -1168,7 +1171,7 @@ window.refreshSemuaQRZona = async () => {
         await batch.commit();
         alert("SUKSES: Semua QR Code Zona telah diperbarui!\n\nGuru yang mencoba scan pakai foto QR lama akan langsung DITOLAK. Silakan unduh/tampilkan QR yang baru.");
         
-        renderManajemenZona(); // Muat ulang gambar QR di layar dengan kode yang baru
+        renderManajemenZona(); 
     } catch (error) {
         alert("Gagal mereset QR: " + error.message);
     } finally {
