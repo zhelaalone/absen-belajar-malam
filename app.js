@@ -311,20 +311,27 @@ window.navigate = (pageId) => {
 async function setupScannerUI() {
     if (!currentUserData) return;
     const adminSelector = document.getElementById("admin-zone-selector");
+    const modeSelector = document.getElementById("admin-scan-mode-selector"); // Tambahan untuk dropdown baru
     const scanTitle = document.getElementById("scan-title");
     const scanDesc = document.getElementById("scan-desc");
     
     if (currentUserData.role === "ADMIN") {
-        adminSelector.classList.remove("hidden");
+        if (adminSelector) adminSelector.classList.remove("hidden");
+        if (modeSelector) modeSelector.classList.remove("hidden");
+        
         scanTitle.innerText = "Scan Kartu Guru (Sistem 1)";
         scanDesc.innerText = "Pilih zona tugas Anda, lalu scan Barcode/ID Card milik guru.";
         
         const select = document.getElementById("pic-zone-select");
-        const zonesSnap = await getDocs(collection(db, "zones"));
-        select.innerHTML = '<option value="">-- Pilih Zona Anda Bertugas --</option>';
-        zonesSnap.forEach(doc => { select.innerHTML += `<option value="${doc.data().id}">${doc.data().nama}</option>`; });
+        if (select) {
+            const zonesSnap = await getDocs(collection(db, "zones"));
+            select.innerHTML = '<option value="">-- Pilih Zona Anda Bertugas --</option>';
+            zonesSnap.forEach(doc => { select.innerHTML += `<option value="${doc.data().id}">${doc.data().nama}</option>`; });
+        }
     } else {
-        adminSelector.classList.add("hidden");
+        if (adminSelector) adminSelector.classList.add("hidden");
+        if (modeSelector) modeSelector.classList.add("hidden");
+        
         scanTitle.innerText = "Scan QR Zona (Sistem 2)";
         scanDesc.innerText = "Arahkan kamera ke QR Code yang terdapat di zona absensi Anda.";
     }
@@ -521,10 +528,10 @@ function initDashboardRealtime() {
         let todaysData = [];
         snapshot.forEach(doc => {
             let d = doc.data();
-            // HANYA tarik data yang sesinya cocok DAN statusnya Tepat Waktu / Terlambat
+            // REVISI: Tambahkan "Tepat Waktu (Kuliah)" dan "Izin" agar masuk ke tabel Dashboard
             if(d.namaKegiatan === activeSessionData.namaKegiatan && 
                d.tipeSesi === activeSessionData.tipeSesi &&
-               (d.status === "Tepat Waktu" || d.status === "Terlambat")) {
+               (d.status === "Tepat Waktu" || d.status === "Terlambat" || d.status === "Tepat Waktu (Kuliah)" || d.status === "Izin")) {
                 todaysData.push(d);
             }
         });
@@ -539,7 +546,9 @@ function initDashboardRealtime() {
             document.getElementById("stat-total").innerText = totalGuru;
             document.getElementById("stat-hadir").innerText = totalHadir;
             document.getElementById("stat-belum").innerText = belumHadir < 0 ? 0 : belumHadir;
-            document.getElementById("stat-tepat").innerText = todaysData.filter(d => d.status === "Tepat Waktu").length;
+            
+            // REVISI: Gabungkan hitungan Tepat Waktu (Kuliah) ke dalam metrik Tepat Waktu
+            document.getElementById("stat-tepat").innerText = todaysData.filter(d => d.status === "Tepat Waktu" || d.status === "Tepat Waktu (Kuliah)").length;
             document.getElementById("stat-terlambat").innerText = todaysData.filter(d => d.status === "Terlambat").length;
 
             if(todaysData.length === 0) {
@@ -547,7 +556,12 @@ function initDashboardRealtime() {
             } else {
                 // Urutkan berdasarkan waktu scan terbaru (timestamp)
                 todaysData.sort((a,b) => b.timestamp - a.timestamp).forEach(data => {
-                    let badgeStyle = data.status === 'Tepat Waktu' ? "background:#d1fae5; color:#059669;" : "background:#ffedd5; color:#ea580c;";
+                    // REVISI: Sesuaikan warna badge di tabel Dashboard
+                    let badgeStyle = "";
+                    if (data.status === 'Tepat Waktu') badgeStyle = "background:#d1fae5; color:#059669;";
+                    else if (data.status === 'Tepat Waktu (Kuliah)') badgeStyle = "background:#eef2ff; color:#4f46e5;";
+                    else if (data.status === 'Terlambat') badgeStyle = "background:#ffedd5; color:#ea580c;";
+                    else badgeStyle = "background:#fef08a; color:#a16207;"; // Izin
                     
                     tbody.innerHTML += `<tr>
                         <td><strong>${data.namaGuru}</strong></td>
@@ -563,7 +577,12 @@ function initDashboardRealtime() {
                 tbody.innerHTML = "<tr><td colspan='4' style='text-align:center;'>Anda belum absen untuk sesi ini.</td></tr>";
             } else {
                 myAttendance.sort((a,b) => b.timestamp - a.timestamp).forEach(data => {
-                    let badgeStyle = data.status === 'Tepat Waktu' ? "background:#d1fae5; color:#059669;" : "background:#ffedd5; color:#ea580c;";
+                    // REVISI: Sesuaikan warna badge di tabel Dashboard (Untuk Guru)
+                    let badgeStyle = "";
+                    if (data.status === 'Tepat Waktu') badgeStyle = "background:#d1fae5; color:#059669;";
+                    else if (data.status === 'Tepat Waktu (Kuliah)') badgeStyle = "background:#eef2ff; color:#4f46e5;";
+                    else if (data.status === 'Terlambat') badgeStyle = "background:#ffedd5; color:#ea580c;";
+                    else badgeStyle = "background:#fef08a; color:#a16207;"; // Izin
 
                     tbody.innerHTML += `<tr>
                         <td><strong>${data.namaGuru}</strong></td>
@@ -753,28 +772,63 @@ async function prosesHasilScan(cleanText) {
 
         const now = new Date();
         const currentTimeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-        const status = currentTimeString <= activeSessionData.batasWaktu ? "Tepat Waktu" : "Terlambat";
+        
+        // --- REVISI: AMBIL MODE SCAN DARI UI JIKA ADMIN ---
+        let modeScan = "normal";
+        if (currentUserData.role === "ADMIN") {
+            const modeDropdown = document.getElementById("admin-scan-mode");
+            if (modeDropdown) modeScan = modeDropdown.value;
+        }
+
+        // --- REVISI: TENTUKAN STATUS KEHADIRAN ---
+        let status = currentTimeString <= activeSessionData.batasWaktu ? "Tepat Waktu" : "Terlambat";
+        if (modeScan !== "normal") {
+            status = modeScan; // Timpa dengan "Tepat Waktu (Kuliah)" atau "Izin"
+        }
         
         const tanggalSQL = now.toISOString().split('T')[0];
         const hariIndo = now.toLocaleDateString('id-ID', { weekday: 'long' });
         const tanggalIndo = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
+        // --- REVISI: CEK APAKAH SUDAH ABSEN ---
         const qCek = query(collection(db, "attendance"), where("tanggal", "==", tanggalSQL), where("email", "==", emailGuru));
         const cekSnap = await getDocs(qCek);
-        let sudahAbsen = false;
+        
+        let existingDocId = null;
         cekSnap.forEach(doc => {
             let d = doc.data();
-            if(d.namaKegiatan === activeSessionData.namaKegiatan && d.tipeSesi === activeSessionData.tipeSesi) sudahAbsen = true;
+            if(d.namaKegiatan === activeSessionData.namaKegiatan && d.tipeSesi === activeSessionData.tipeSesi) {
+                existingDocId = doc.id; // Simpan ID database jika ditemukan absen sebelumnya
+            }
         });
 
-        if (sudahAbsen) {
-            resultDiv.innerHTML = `<div style="background:#fef3c7; padding:15px; border-radius:8px; border-left:4px solid #d97706; margin-top:20px;"><h3 style="color:#b45309; margin-bottom:5px;">⚠️ SUDAH ABSEN</h3><p style="margin:0;"><strong>${namaGuru}</strong> sudah tercatat hadir pada sesi ini.</p></div>`;
-            return;
+        // --- REVISI: LOGIKA PENYIMPANAN / OVERWRITE ---
+        if (existingDocId) {
+            if (modeScan === "normal") {
+                // Jika mode normal, cegah absen ganda
+                resultDiv.innerHTML = `<div style="background:#fef3c7; padding:15px; border-radius:8px; border-left:4px solid #d97706; margin-top:20px;"><h3 style="color:#b45309; margin-bottom:5px;">⚠️ SUDAH ABSEN</h3><p style="margin:0;"><strong>${namaGuru}</strong> sudah tercatat hadir pada sesi ini.</p></div>`;
+                return;
+            } else {
+                // Jika mode "Tepat Waktu (Kuliah)", timpa/update data yang lama
+                await updateDoc(doc(db, "attendance", existingDocId), {
+                    status: status,
+                    waktu: currentTimeString,
+                    adminPenanggungJawab: activeSessionData.adminNama + " (Update Scanner)"
+                });
+                resultDiv.innerHTML = `<div style="background: var(--primary-light); padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid var(--primary); box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: var(--primary); margin-bottom:10px;">🔄 Status Diperbarui!</h3><p>Status <strong>${namaGuru}</strong> berhasil ditimpa menjadi <span class="badge" style="background:#4f46e5; color:#fff;">${status}</span></p></div>`;
+                return;
+            }
         }
 
-        resultDiv.innerHTML = `<div style="background: ${status === 'Tepat Waktu' ? 'var(--primary-light)' : '#ffe6e6'}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${status === 'Tepat Waktu' ? 'var(--success)' : 'var(--danger)'}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${status === 'Tepat Waktu' ? 'badge-tepat' : 'badge-terlambat'}">${status}</span></p></div>`;
+        // --- REVISI: JIKA BELUM ABSEN SAMA SEKALI ---
+        // (Diubah dari Hadir (Kuliah) menjadi Tepat Waktu (Kuliah))
+        let bgStyle = (status === 'Tepat Waktu' || status === 'Tepat Waktu (Kuliah)') ? 'var(--primary-light)' : '#ffe6e6';
+        let colorStyle = (status === 'Tepat Waktu' || status === 'Tepat Waktu (Kuliah)') ? 'var(--success)' : 'var(--danger)';
+        let badgeClass = (status === 'Tepat Waktu' || status === 'Tepat Waktu (Kuliah)') ? 'badge-tepat' : 'badge-terlambat';
 
-        addDoc(collection(db, "attendance"), {
+        resultDiv.innerHTML = `<div style="background: ${bgStyle}; padding: 20px; border-radius: 12px; margin-top: 20px; border-left: 4px solid ${colorStyle}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);"><h3 style="color: ${colorStyle}; margin-bottom:10px;">✓ ${namaGuru} Berhasil Absen</h3><p><strong>Waktu:</strong> ${currentTimeString} WIB | <strong>Status:</strong> <span class="badge ${badgeClass}">${status}</span></p></div>`;
+
+        await addDoc(collection(db, "attendance"), {
             namaGuru, email: emailGuru, namaZona, waktu: currentTimeString, status, tanggal: tanggalSQL, hariStr: hariIndo, tanggalStr: tanggalIndo, 
             namaKegiatan: activeSessionData.namaKegiatan, 
             tipeSesi: activeSessionData.tipeSesi, 
@@ -1181,7 +1235,6 @@ async function getRekapWithAbsentees(tanggalFilter = "") {
     let attRef = collection(db, "attendance");
     let qAtt = attRef;
     
-    // --- OPTIMASI SKALABILITAS: Batasi query berdasarkan tanggal yang dipilih atau hari ini ---
     if (tanggalFilter) {
         qAtt = query(attRef, where("tanggal", "==", tanggalFilter));
     } else {
@@ -1193,12 +1246,15 @@ async function getRekapWithAbsentees(tanggalFilter = "") {
     const guruSnap = await getDocs(collection(db, "guru"));
 
     let allGuru = [];
-    let mapTahunGuru = {}; 
+    let mapGuruInfo = {}; 
 
     guruSnap.forEach(doc => {
         let data = doc.data();
         allGuru.push(data);
-        mapTahunGuru[data.Email] = data.Tahun || "-"; 
+        mapGuruInfo[data.Email] = { 
+            tahun: data.Tahun || "-", 
+            kamar: data.Kamar || "-" 
+        }; 
     });
 
     let dataRekap = [];
@@ -1208,7 +1264,8 @@ async function getRekapWithAbsentees(tanggalFilter = "") {
         let d = doc.data();
         d.docId = doc.id;           
         d.isVirtual = false;        
-        d.tahunGuru = mapTahunGuru[d.email] || "-";
+        d.tahunGuru = mapGuruInfo[d.email] ? mapGuruInfo[d.email].tahun : "-";
+        d.kamarGuru = mapGuruInfo[d.email] ? mapGuruInfo[d.email].kamar : "-";
 
         dataRekap.push(d);
         
@@ -1232,6 +1289,7 @@ async function getRekapWithAbsentees(tanggalFilter = "") {
                     tanggal: session.tanggal, hariStr: session.hariStr, tanggalStr: session.tanggalStr, waktu: "-",
                     namaKegiatan: session.namaKegiatan, tipeSesi: session.tipeSesi, namaGuru: guru.Nama, 
                     tahunGuru: guru.Tahun || "-", 
+                    kamarGuru: guru.Kamar || "-", 
                     namaZona: guru.Zona || "-",
                     status: "Tidak Hadir", adminPenanggungJawab: session.adminPenanggungJawab, timestamp: session.timestamp - 1 
                 });
@@ -1365,6 +1423,7 @@ window.applyFilters = () => {
     const fKegiatan = document.getElementById("filter-kegiatan").value.toLowerCase();
     const fTahap = document.getElementById("filter-tahap").value.toLowerCase();
     const fNama = document.getElementById("filter-nama").value.toLowerCase();
+    const fKamar = document.getElementById("filter-kamar") ? document.getElementById("filter-kamar").value.toLowerCase() : "";
     const fZona = document.getElementById("filter-zona").value.toLowerCase();
     const fStatus = document.getElementById("filter-status").value.toLowerCase();
     const fAdmin = document.getElementById("filter-admin").value.toLowerCase();
@@ -1375,39 +1434,43 @@ window.applyFilters = () => {
         const matchKegiatan = !fKegiatan || (d.namaKegiatan && d.namaKegiatan.toLowerCase().includes(fKegiatan));
         const matchTahap = !fTahap || (d.tipeSesi && d.tipeSesi.toLowerCase().includes(fTahap));
         const matchNama = !fNama || (d.namaGuru && d.namaGuru.toLowerCase().includes(fNama));
+        const matchKamar = !fKamar || (d.kamarGuru && d.kamarGuru.toLowerCase().includes(fKamar));
         const matchZona = !fZona || (d.namaZona && d.namaZona.toLowerCase().includes(fZona));
         const matchStatus = !fStatus || (d.status && d.status.toLowerCase().includes(fStatus));
         const matchAdmin = !fAdmin || (d.adminPenanggungJawab && d.adminPenanggungJawab.toLowerCase().includes(fAdmin));
 
-        return matchTanggal && matchJam && matchKegiatan && matchTahap && matchNama && matchZona && matchStatus && matchAdmin;
+        return matchTanggal && matchJam && matchKegiatan && matchTahap && matchNama && matchKamar && matchZona && matchStatus && matchAdmin;
     });
 
     drawRekapTable(filteredRekapData);
 };
 
-// --- RENDER TABEL REKAP & LOGIKA CHECKBOX HAPUS (DIOPTIMASI AGAR TIDAK LAG) ---
+// --- REVISI 1: TABEL REKAP (MENGAKTIFKAN CHECKBOX UNTUK STATUS TIDAK HADIR) ---
 function drawRekapTable(data) {
     const tbody = document.getElementById("body-rekap");
     
     const checkAll = document.getElementById("check-all");
     if(checkAll) checkAll.checked = false;
-    if(document.getElementById("btn-bulk-delete")) document.getElementById("btn-bulk-delete").classList.add("hidden");
+    
+    const bulkGroup = document.getElementById("bulk-action-group");
+    if(bulkGroup) bulkGroup.classList.add("hidden");
 
     if (data.length === 0) {
         tbody.innerHTML = "<tr><td colspan='10' style='text-align:center; padding:20px;'>Tidak ada data yang sesuai dengan kriteria filter.</td></tr>";
         return;
     }
 
-    // Menggunakan .map().join('') agar browser tidak lag saat merender ratusan baris sekaligus
     const htmlRows = data.map((d, index) => {
         let badgeStyle = "";
         if (d.status === 'Tepat Waktu') badgeStyle = "background:#d1fae5; color:#059669;";
+        else if (d.status === 'Tepat Waktu (Kuliah)') badgeStyle = "background:#eef2ff; color:#4f46e5;"; 
         else if (d.status === 'Terlambat') badgeStyle = "background:#ffedd5; color:#ea580c;";
         else if (d.status === 'Izin' || d.status === 'Sakit') badgeStyle = "background:#fef08a; color:#a16207;"; 
         else badgeStyle = "background:#fee2e2; color:#dc2626;"; 
 
         const isVirtual = d.isVirtual;
-        const checkboxHTML = isVirtual ? `<input type="checkbox" disabled style="opacity: 0.3;">` : `<input type="checkbox" class="check-rekap" value="${index}" onchange="updateBulkDeleteButton()" style="transform: scale(1.2); cursor: pointer;">`;
+        const checkboxHTML = `<input type="checkbox" class="check-rekap" value="${index}" onchange="updateBulkActionUI()" style="transform: scale(1.2); cursor: pointer;">`;
+        
         const btnHapusHTML = isVirtual ? 
             `<button disabled style="background:#fca5a5; color:#fff; border:none; padding:5px 8px; border-radius:6px; font-size:0.75rem; cursor:not-allowed; opacity: 0.7;">Hapus</button>` : 
             `<button onclick="hapusSatuRekap(${index})" style="background:#dc2626; color:#fff; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:0.75rem;">Hapus</button>`;
@@ -1420,7 +1483,7 @@ function drawRekapTable(data) {
             <td><span style="background:#eef2ff; color:#4f46e5; padding:3px 8px; border-radius:4px; font-size:0.85rem;">${d.tipeSesi}</span></td>
             <td>
                 <strong>${d.namaGuru}</strong><br>
-                <span style="font-size: 0.75rem; color: #6b7280;">Tahun: ${d.tahunGuru}</span>
+                <span style="font-size: 0.75rem; color: #6b7280;">Tahun: ${d.tahunGuru} | Kamar: ${d.kamarGuru}</span>
             </td>
             <td>${d.namaZona}</td>
             <td><span class="badge" style="${badgeStyle}">${d.status}</span></td>
@@ -1435,23 +1498,97 @@ function drawRekapTable(data) {
     tbody.innerHTML = htmlRows;
 }
 
-// Fitur Centang Semua Checkbox
+// --- REVISI 2: FUNGSI CENTANG SEMUA CHECKBOX ---
 window.toggleCheckAll = () => {
     const checkAll = document.getElementById("check-all");
-    const checkboxes = document.querySelectorAll('.check-rekap:not([disabled])');
+    // Karena semua checkbox sekarang aktif, hapus filter :not([disabled])
+    const checkboxes = document.querySelectorAll('.check-rekap');
     checkboxes.forEach(cb => cb.checked = checkAll.checked);
-    updateBulkDeleteButton();
+    updateBulkActionUI();
 };
 
-// Fitur Update Angka di Tombol Hapus Masal
-window.updateBulkDeleteButton = () => {
+// --- REVISI 3: FUNGSI MENAMPILKAN PANEL AKSI MASAL (Pengganti updateBulkDeleteButton) ---
+window.updateBulkActionUI = () => {
     const checkedCount = document.querySelectorAll('.check-rekap:checked').length;
-    const btn = document.getElementById("btn-bulk-delete");
+    const bulkGroup = document.getElementById("bulk-action-group");
+    const bulkCountText = document.getElementById("bulk-count");
+    
     if (checkedCount > 0) {
-        btn.classList.remove("hidden");
-        btn.innerText = `Hapus Terpilih (${checkedCount})`;
+        if (bulkGroup) bulkGroup.classList.remove("hidden");
+        if (bulkCountText) bulkCountText.innerText = `${checkedCount} Terpilih`;
     } else {
-        btn.classList.add("hidden");
+        if (bulkGroup) bulkGroup.classList.add("hidden");
+    }
+};
+
+// --- REVISI 4: LOGIKA EKSEKUSI MASAL (Pengganti hapusBanyakRekap) ---
+window.prosesBanyakRekap = async () => {
+    if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
+    
+    const checkboxes = document.querySelectorAll('.check-rekap:checked');
+    if (checkboxes.length === 0) return;
+
+    const aksiDipilih = document.getElementById("bulk-status-select").value;
+    const namaAksi = aksiDipilih === "Hapus" ? "MENGHAPUS riwayat (menjadi Alpa)" : `MENGUBAH status menjadi "${aksiDipilih}"`;
+
+    if (confirm(`Yakin ingin ${namaAksi} untuk ${checkboxes.length} guru terpilih?`)) {
+        const btn = document.querySelector("#bulk-action-group .btn-primary");
+        btn.innerText = "Memproses...";
+        btn.disabled = true;
+        
+        try {
+            const batch = writeBatch(db); // Menggunakan fitur Batch Firebase agar super cepat
+            let count = 0;
+            const now = new Date();
+            
+            checkboxes.forEach(cb => {
+                const index = parseInt(cb.value);
+                const data = filteredRekapData[index];
+                
+                if (aksiDipilih === "Hapus") {
+                    // Hanya hapus jika data sudah ada di cloud (bukan virtual)
+                    if (!data.isVirtual && data.docId) {
+                        batch.delete(doc(db, "attendance", data.docId));
+                        count++;
+                    }
+                } else {
+                    if (data.isVirtual) {
+                        // Jika statusnya Tidak Hadir (belum terekam di DB), BUAT dokumen baru
+                        const newDocRef = doc(collection(db, "attendance"));
+                        batch.set(newDocRef, {
+                            namaGuru: data.namaGuru, email: data.email, namaZona: data.namaZona, 
+                            waktu: "-", status: aksiDipilih, 
+                            tanggal: data.tanggal, hariStr: data.hariStr, tanggalStr: data.tanggalStr, 
+                            namaKegiatan: data.namaKegiatan, tipeSesi: data.tipeSesi, 
+                            adminPenanggungJawab: currentUserData.nama + " (Bulk Update)", 
+                            timestamp: now.getTime()
+                        });
+                        count++;
+                    } else {
+                        // Jika sudah ada (misal Terlambat), TIMPA/UPDATE statusnya
+                        batch.update(doc(db, "attendance", data.docId), {
+                            status: aksiDipilih,
+                            adminPenanggungJawab: currentUserData.nama + " (Bulk Update)"
+                        });
+                        count++;
+                    }
+                }
+            });
+            
+            if (count > 0) {
+                await batch.commit();
+                alert(`SUKSES! ${count} data berhasil diproses secara masal.`);
+                renderRekap();
+            } else if (aksiDipilih === "Hapus") {
+                alert("Tidak ada yang diproses (semua yang dicentang memang sudah berstatus Tidak Hadir).");
+            }
+        } catch (error) {
+            alert("Gagal memproses data masal: " + error.message);
+        } finally {
+            btn.innerText = "Proses Masal";
+            btn.disabled = false;
+            document.getElementById("check-all").checked = false;
+        }
     }
 };
 
@@ -1471,50 +1608,13 @@ window.hapusSatuRekap = async (index) => {
     }
 };
 
-// LOGIKA 2: Hapus Banyak Data Rekap Sekaligus (Batch Delete)
-window.hapusBanyakRekap = async () => {
-    if (currentUserData.role !== "ADMIN") return alert("Akses Ditolak!");
-    
-    const checkboxes = document.querySelectorAll('.check-rekap:checked');
-    if (checkboxes.length === 0) return;
-
-    if (confirm(`PERINGATAN TINGKAT TINGGI:\nAnda akan menghapus ${checkboxes.length} data kehadiran secara permanen!\n\nSemua guru yang Anda centang akan kembali berstatus "Tidak Hadir". Apakah Anda yakin?`)) {
-        const btn = document.getElementById("btn-bulk-delete");
-        btn.innerText = "Menghapus...";
-        btn.disabled = true;
-        
-        try {
-            const batch = writeBatch(db); // Menggunakan fitur Batch dari Firebase agar super cepat
-            let count = 0;
-            
-            checkboxes.forEach(cb => {
-                const index = parseInt(cb.value);
-                const data = filteredRekapData[index];
-                if (!data.isVirtual && data.docId) {
-                    batch.delete(doc(db, "attendance", data.docId));
-                    count++;
-                }
-            });
-            
-            if (count > 0) {
-                await batch.commit();
-                alert(`${count} data kehadiran berhasil dihapus secara masal!`);
-                renderRekap();
-            }
-        } catch (error) {
-            alert("Gagal menghapus data masal: " + error.message);
-        } finally {
-            btn.disabled = false;
-        }
-    }
-};
-
 window.resetFilters = () => {
     document.getElementById("filter-tanggal").value = "";
     document.getElementById("filter-jam").value = "";
     document.getElementById("filter-kegiatan").value = "";
     document.getElementById("filter-tahap").value = "";
     document.getElementById("filter-nama").value = "";
+    if (document.getElementById("filter-kamar")) document.getElementById("filter-kamar").value = "";
     document.getElementById("filter-zona").value = "";
     document.getElementById("filter-status").value = "";
     document.getElementById("filter-admin").value = "";
@@ -1537,7 +1637,8 @@ window.exportRekapToExcel = async () => {
             "Nama Kegiatan": d.namaKegiatan, 
             "Tahap Absensi": d.tipeSesi, 
             "Nama Guru": d.namaGuru, 
-            "Tahun": d.tahunGuru,  // <--- KOLOM TAHUN KINI BERADA DI SINI
+            "Tahun": d.tahunGuru,  
+            "Kamar": d.kamarGuru,
             "Zona": d.namaZona, 
             "Status": d.status, 
             "Admin Bertugas": d.adminPenanggungJawab
