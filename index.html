@@ -167,21 +167,32 @@
             <div id="page-scan" class="page hidden">
                 <div class="scan-container">
                     <div class="scan-card">
-                        <div class="scan-header">
-                            <h2 id="scan-title">Scan Barcode</h2>
-                            <p id="scan-desc">Arahkan kamera ke QR Code.</p>
-                        </div>
-                        
-                        <div id="admin-zone-selector" class="hidden" style="margin-bottom: 20px; text-align: left;">
-                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Pilih Zona Anda Bertugas:</label>
-                            <select id="pic-zone-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif;">
-                            </select>
-                        </div>
+    <div class="scan-header">
+        <h2 id="scan-title">Scan Barcode</h2>
+        <p id="scan-desc">Arahkan kamera ke QR Code.</p>
+    </div>
+    
+    <!-- DROPDOWN LAMA (JANGAN DIHAPUS): Pilihan Zona -->
+    <div id="admin-zone-selector" class="hidden" style="margin-bottom: 20px; text-align: left;">
+        <label style="font-weight: 600; display: block; margin-bottom: 8px;">Pilih Zona Anda Bertugas:</label>
+        <select id="pic-zone-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif;">
+        </select>
+    </div>
 
-                        <div id="reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
-                        <button id="btn-start-scan" class="btn-primary" onclick="startScanner()">Mulai Scan</button>
-                        <div id="scan-result" class="scan-result hidden"></div>
-                    </div>
+    <!-- DROPDOWN BARU: Mode Scan Status -->
+    <div id="admin-scan-mode-selector" class="admin-only hidden" style="margin-bottom: 20px; text-align: left;">
+        <label style="font-weight: 600; display: block; margin-bottom: 8px;">Mode Scan / Override Status:</label>
+        <select id="admin-scan-mode" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: 'Poppins', sans-serif; background: #eef2ff; color: #4f46e5; font-weight: bold;">
+    <option value="normal">1. Normal (Otomatis Tepat/Terlambat)</option>
+    <option value="Tepat Waktu (Kuliah)">2. Timpa Status ➔ Tepat Waktu (Kuliah)</option>
+    <option value="Izin">3. Timpa Status ➔ Izin Khusus</option>
+</select>
+    </div>
+
+    <div id="reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
+    <button id="btn-start-scan" class="btn-primary" onclick="startScanner()">Mulai Scan</button>
+    <div id="scan-result" class="scan-result hidden"></div>
+</div>
                 </div>
             </div>
 
@@ -243,13 +254,23 @@
                 <div class="stats-grid" id="zona-grid"></div>
             </div>
             
-          <!-- REKAP (DIPERBARUI DENGAN HAPUS MASAL) -->
+          <!-- REKAP (DIPERBARUI DENGAN HAPUS MASAL & FILTER KAMAR) -->
             <div id="page-rekap" class="page hidden admin-only">
                 <div class="section-header flex-between">
                     <h3>Rekap Seluruh Kehadiran</h3>
-                    <div class="action-buttons" style="display: flex; gap: 10px;">
-                        <!-- Tombol Hapus Masal (Awalnya disembunyikan) -->
-                        <button id="btn-bulk-delete" class="btn-danger hidden" onclick="hapusBanyakRekap()" style="padding: 8px 15px; border-radius: 8px;">Hapus Terpilih (0)</button>
+                    <div class="action-buttons" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <!-- Fitur Baru: Panel Ubah & Hapus Masal -->
+                        <div id="bulk-action-group" class="hidden" style="display: flex; gap: 10px; background: #eef2ff; padding: 6px 12px; border-radius: 8px; border: 1px solid #c7d2fe;">
+                            <span id="bulk-count" style="font-weight: 700; color: #4f46e5; align-self: center; font-size: 0.9rem;">0 Terpilih</span>
+                            <select id="bulk-status-select" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #a5b4fc; font-size: 0.85rem; outline: none;">
+                                <option value="Izin">Ubah ke: Izin</option>
+                                <option value="Sakit">Ubah ke: Sakit</option>
+                                <option value="Tepat Waktu (Kuliah)">Ubah ke: Tepat Waktu (Kuliah)</option>
+                                <option value="Hapus">Hapus Riwayat (Jadi Alpa)</option>
+                            </select>
+                            <button class="btn-primary" onclick="prosesBanyakRekap()" style="padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; background: #4f46e5;">Proses Masal</button>
+                        </div>
+                        
                         <button class="btn-secondary" onclick="exportRekapToExcel()">Export ke Excel (Sesuai Filter)</button>
                     </div>
                 </div>
@@ -268,12 +289,18 @@
                         </select>
                     </div>
                     <div><span class="filter-label">Nama Guru</span><input type="text" id="filter-nama" class="filter-input" placeholder="Ketik nama..." oninput="applyFilters()"></div>
+                    
+                    <!-- TAMBAHAN BARU: Filter Kamar -->
+                    <div><span class="filter-label">Kamar</span><input type="text" id="filter-kamar" class="filter-input" placeholder="Ketik kamar..." oninput="applyFilters()"></div>
+                    <!-- ========================== -->
+
                     <div><span class="filter-label">Zona</span><input type="text" id="filter-zona" class="filter-input" placeholder="Ketik zona..." oninput="applyFilters()"></div>
                     <div>
                         <span class="filter-label">Status</span>
                         <select id="filter-status" class="filter-input" onchange="applyFilters()">
                             <option value="">Semua Status</option>
                             <option value="Tepat Waktu">Tepat Waktu</option>
+                            <option value="Tepat Waktu (Kuliah)">Tepat Waktu (Kuliah)</option>
                             <option value="Terlambat">Terlambat</option>
                             <option value="Izin">Izin</option>
                             <option value="Sakit">Sakit</option>
@@ -352,12 +379,13 @@
             <div class="input-group">
                 <label>Pilih Status Baru:</label>
                 <select id="modal-status-select" class="filter-input" style="font-size: 1rem; padding: 10px;" onchange="onStatusSelectChange()">
-                    <option value="Tepat Waktu">Tepat Waktu</option>
-                    <option value="Terlambat">Terlambat</option>
-                    <option value="Izin">Izin</option>
-                    <option value="Sakit">Sakit</option>
-                    <option value="Tidak Hadir">Tidak Hadir (Hapus Riwayat)</option>
-                </select>
+    <option value="Tepat Waktu">Tepat Waktu</option>
+    <option value="Tepat Waktu (Kuliah)">Tepat Waktu (Kuliah)</option>
+    <option value="Terlambat">Terlambat</option>
+    <option value="Izin">Izin</option>
+    <option value="Sakit">Sakit</option>
+    <option value="Tidak Hadir">Tidak Hadir (Hapus Riwayat)</option>
+</select>
             </div>
             
             <div id="modal-status-time-group" class="input-group">
