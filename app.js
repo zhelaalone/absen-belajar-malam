@@ -1230,88 +1230,91 @@ window.refreshSemuaQRZona = async () => {
 };
 
 
-// --- 8. FUNGSI LOGIKA REKAP OTOMATIS & KONFIRMASI STATUS UI (MODAL) ---
-async function getRekapWithAbsentees(tanggalFilter = "") {
-    let attRef = collection(db, "attendance");
-    let qAtt = attRef;
+// PASTIKAN FUNGSI INI TERLIHAT SEPERTI INI
+async function getRekapWithAbsentees(tanggalFilter) {
+    if (!tanggalFilter) return []; 
     
-    if (tanggalFilter) {
-        qAtt = query(attRef, where("tanggal", "==", tanggalFilter));
-    } else {
-        const today = new Date().toISOString().split('T')[0];
-        qAtt = query(attRef, where("tanggal", "==", today));
-    }
-
+    // Perhatikan: "tanggalFilter" harus persis dengan format string "tanggal" yang disimpan di Firebase
+    // Secara default, fungsi absensi Anda menyimpan format: 2026-10-17 (YYYY-MM-DD)
+    const qAtt = query(collection(db, "attendance"), where("tanggal", "==", tanggalFilter));
     const attSnap = await getDocs(qAtt);
-    const guruSnap = await getDocs(collection(db, "guru"));
+    
+    if (attSnap.empty) return [];
 
     let allGuru = [];
-    let mapGuruInfo = {}; 
-
-    guruSnap.forEach(doc => {
-        let data = doc.data();
-        allGuru.push(data);
-        mapGuruInfo[data.Email] = { 
-            tahun: data.Tahun || "-", 
-            kamar: data.Kamar || "-" 
-        }; 
-    });
+    if (globalGuruMap && globalGuruMap.size > 0) {
+        allGuru = Array.from(globalGuruMap.values());
+    } else {
+        const guruSnap = await getDocs(collection(db, "guru"));
+        guruSnap.forEach(doc => allGuru.push(doc.data()));
+    }
 
     let dataRekap = [];
-    let uniqueSessions = {}; 
+    let uniqueSessions = new Map(); 
 
     attSnap.forEach(doc => {
         let d = doc.data();
         d.docId = doc.id;           
         d.isVirtual = false;        
-        d.tahunGuru = mapGuruInfo[d.email] ? mapGuruInfo[d.email].tahun : "-";
-        d.kamarGuru = mapGuruInfo[d.email] ? mapGuruInfo[d.email].kamar : "-";
+        
+        let guruInfo = allGuru.find(g => g.Email === d.email) || {};
+        d.tahunGuru = guruInfo.Tahun || "-";
+        d.kamarGuru = guruInfo.Kamar || "-";
 
         dataRekap.push(d);
         
         let sessionKey = `${d.tanggal}_${d.namaKegiatan}_${d.tipeSesi}`;
-        if (!uniqueSessions[sessionKey]) {
-            uniqueSessions[sessionKey] = {
-                tanggal: d.tanggal, hariStr: d.hariStr, tanggalStr: d.tanggalStr, namaKegiatan: d.namaKegiatan,
-                tipeSesi: d.tipeSesi, adminPenanggungJawab: d.adminPenanggungJawab, timestamp: d.timestamp,
-                attendedEmails: new Set()
-            };
+        if (!uniqueSessions.has(sessionKey)) {
+            uniqueSessions.set(sessionKey, {
+                tanggal: d.tanggal, hariStr: d.hariStr, tanggalStr: d.tanggalStr, 
+                namaKegiatan: d.namaKegiatan, tipeSesi: d.tipeSesi, 
+                adminPenanggungJawab: d.adminPenanggungJawab, timestamp: d.timestamp,
+                attendedEmails: new Set() 
+            });
         }
-        uniqueSessions[sessionKey].attendedEmails.add(d.email);
+        uniqueSessions.get(sessionKey).attendedEmails.add(d.email);
     });
 
-    for (let key in uniqueSessions) {
-        let session = uniqueSessions[key];
+    uniqueSessions.forEach((session) => {
         allGuru.forEach(guru => {
             if (!session.attendedEmails.has(guru.Email)) {
                 dataRekap.push({
                     isVirtual: true, email: guru.Email,
                     tanggal: session.tanggal, hariStr: session.hariStr, tanggalStr: session.tanggalStr, waktu: "-",
                     namaKegiatan: session.namaKegiatan, tipeSesi: session.tipeSesi, namaGuru: guru.Nama, 
-                    tahunGuru: guru.Tahun || "-", 
-                    kamarGuru: guru.Kamar || "-", 
-                    namaZona: guru.Zona || "-",
+                    tahunGuru: guru.Tahun || "-", kamarGuru: guru.Kamar || "-", namaZona: guru.Zona || "-",
                     status: "Tidak Hadir", adminPenanggungJawab: session.adminPenanggungJawab, timestamp: session.timestamp - 1 
                 });
             }
         });
-    }
+    });
 
     dataRekap.sort((a, b) => b.timestamp - a.timestamp);
     return dataRekap;
 }
 
+// PASTIKAN FUNGSI INI TERLIHAT SEPERTI INI
 async function renderRekap() {
     const tbody = document.getElementById("body-rekap");
-    tbody.innerHTML = "<tr><td colspan='9' style='text-align:center;'>Mengkalkulasi kehadiran dan alpa dari server...</td></tr>";
+    const fTanggal = document.getElementById("filter-tanggal").value; // Format dari input ini adalah YYYY-MM-DD
+
+    // Jika filter tanggal KOSONG, tabel harus dikosongkan, jangan tarik data
+    if (!fTanggal) {
+        tbody.innerHTML = "<tr><td colspan='10' style='text-align:center; padding: 20px; color: #6b7280;'>Silakan pilih <b>Tanggal</b> terlebih dahulu untuk melihat rekap absensi.</td></tr>";
+        allRekapData = [];
+        filteredRekapData = [];
+        return; 
+    }
+
+    tbody.innerHTML = "<tr><td colspan='10' style='text-align:center;'>Mengkalkulasi kehadiran dari server...</td></tr>";
+    
     try {
-        const fTanggal = document.getElementById("filter-tanggal").value;
-        allRekapData = await getRekapWithAbsentees(fTanggal);
+        allRekapData = await getRekapWithAbsentees(fTanggal); 
         filteredRekapData = [...allRekapData]; 
         
-        window.applyFilters(); 
+        applyLocalFilters(); 
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan='9' style='text-align:center; color:red;'>Gagal memuat: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan='10' style='text-align:center; color:red;'>Gagal memuat: ${error.message}</td></tr>`;
     }
 }
 
@@ -1417,8 +1420,21 @@ window.simpanStatusBaru = async () => {
     }
 };
 
-window.applyFilters = () => {
-    const fTanggal = document.getElementById("filter-tanggal").value;
+// --- REVISI: FUNGSI SAAT TANGGAL DIUBAH (TARIK DATA DARI SERVER) ---
+window.onTanggalChange = () => {
+    // Memanggil renderRekap lagi
+    renderRekap();
+};
+
+
+// --- FUNGSI FILTER LOKAL (UNTUK JAM, KEGIATAN, NAMA, DLL) ---
+window.applyLocalFilters = () => {
+    // PENGAMAN: Jika allRekapData belum ada atau bukan array, hentikan filter
+    if (!allRekapData || !Array.isArray(allRekapData)) {
+        console.warn("Menunggu data selesai diunduh...");
+        return; 
+    }
+
     const fJam = document.getElementById("filter-jam").value.toLowerCase();
     const fKegiatan = document.getElementById("filter-kegiatan").value.toLowerCase();
     const fTahap = document.getElementById("filter-tahap").value.toLowerCase();
@@ -1429,7 +1445,7 @@ window.applyFilters = () => {
     const fAdmin = document.getElementById("filter-admin").value.toLowerCase();
 
     filteredRekapData = allRekapData.filter(d => {
-        const matchTanggal = !fTanggal || d.tanggal === fTanggal; 
+        // Karena filter tanggal HANYA dari server, kita buang dari sini
         const matchJam = !fJam || (d.waktu && d.waktu.toLowerCase().includes(fJam));
         const matchKegiatan = !fKegiatan || (d.namaKegiatan && d.namaKegiatan.toLowerCase().includes(fKegiatan));
         const matchTahap = !fTahap || (d.tipeSesi && d.tipeSesi.toLowerCase().includes(fTahap));
@@ -1439,10 +1455,25 @@ window.applyFilters = () => {
         const matchStatus = !fStatus || (d.status && d.status.toLowerCase().includes(fStatus));
         const matchAdmin = !fAdmin || (d.adminPenanggungJawab && d.adminPenanggungJawab.toLowerCase().includes(fAdmin));
 
-        return matchTanggal && matchJam && matchKegiatan && matchTahap && matchNama && matchKamar && matchZona && matchStatus && matchAdmin;
+        return matchJam && matchKegiatan && matchTahap && matchNama && matchKamar && matchZona && matchStatus && matchAdmin;
     });
 
     drawRekapTable(filteredRekapData);
+};
+
+window.resetFilters = () => {
+    document.getElementById("filter-tanggal").value = "";
+    document.getElementById("filter-jam").value = "";
+    document.getElementById("filter-kegiatan").value = "";
+    document.getElementById("filter-tahap").value = "";
+    document.getElementById("filter-nama").value = "";
+    if (document.getElementById("filter-kamar")) document.getElementById("filter-kamar").value = "";
+    document.getElementById("filter-zona").value = "";
+    document.getElementById("filter-status").value = "";
+    document.getElementById("filter-admin").value = "";
+    
+    // Saat reset ditekan, tarik ulang data hari ini dari server
+    renderRekap(); 
 };
 
 // --- REVISI 1: TABEL REKAP (MENGAKTIFKAN CHECKBOX UNTUK STATUS TIDAK HADIR) ---
@@ -1666,6 +1697,39 @@ setInterval(() => {
 
 initSystem();
 checkLoginStatus();
+
+// MEMAKSA HTML MENGENALI FUNGSI MODULE INI
+window.onTanggalChange = () => {
+    renderRekap();
+};
+
+window.applyLocalFilters = () => {
+    if (!allRekapData || !Array.isArray(allRekapData)) return;
+
+    const fJam = document.getElementById("filter-jam").value.toLowerCase();
+    const fKegiatan = document.getElementById("filter-kegiatan").value.toLowerCase();
+    const fTahap = document.getElementById("filter-tahap").value.toLowerCase();
+    const fNama = document.getElementById("filter-nama").value.toLowerCase();
+    const fKamar = document.getElementById("filter-kamar") ? document.getElementById("filter-kamar").value.toLowerCase() : "";
+    const fZona = document.getElementById("filter-zona").value.toLowerCase();
+    const fStatus = document.getElementById("filter-status").value.toLowerCase();
+    const fAdmin = document.getElementById("filter-admin").value.toLowerCase();
+
+    filteredRekapData = allRekapData.filter(d => {
+        const matchJam = !fJam || (d.waktu && d.waktu.toLowerCase().includes(fJam));
+        const matchKegiatan = !fKegiatan || (d.namaKegiatan && d.namaKegiatan.toLowerCase().includes(fKegiatan));
+        const matchTahap = !fTahap || (d.tipeSesi && d.tipeSesi.toLowerCase().includes(fTahap));
+        const matchNama = !fNama || (d.namaGuru && d.namaGuru.toLowerCase().includes(fNama));
+        const matchKamar = !fKamar || (d.kamarGuru && d.kamarGuru.toLowerCase().includes(fKamar));
+        const matchZona = !fZona || (d.namaZona && d.namaZona.toLowerCase().includes(fZona));
+        const matchStatus = !fStatus || (d.status && d.status.toLowerCase().includes(fStatus));
+        const matchAdmin = !fAdmin || (d.adminPenanggungJawab && d.adminPenanggungJawab.toLowerCase().includes(fAdmin));
+
+        return matchJam && matchKegiatan && matchTahap && matchNama && matchKamar && matchZona && matchStatus && matchAdmin;
+    });
+
+    drawRekapTable(filteredRekapData);
+};
 
 // --- FUNGSI TAMPIL & DOWNLOAD QR PERSONAL GURU ---
 window.renderMyQR = () => {
