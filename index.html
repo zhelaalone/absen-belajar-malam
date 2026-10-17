@@ -276,40 +276,50 @@
                 </div>
                 
                 <div style="background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; align-items: end; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-                    <div><span class="filter-label">Tanggal</span><input type="date" id="filter-tanggal" class="filter-input" onchange="applyFilters()"></div>
-                    <div><span class="filter-label">Jam</span><input type="text" id="filter-jam" class="filter-input" placeholder="Cth: 20:..." oninput="applyFilters()"></div>
-                    <div><span class="filter-label">Kegiatan</span><input type="text" id="filter-kegiatan" class="filter-input" placeholder="Ketik kegiatan..." oninput="applyFilters()"></div>
-                    <div>
-                        <span class="filter-label">Tahap</span>
-                        <select id="filter-tahap" class="filter-input" onchange="applyFilters()">
-                            <option value="">Semua Tahap</option>
-                            <option value="Sesi Tunggal">Tunggal</option>
-                            <option value="Qobliyah">Qobliyah</option>
-                            <option value="Bakdiyah">Bakdiyah</option>
-                        </select>
-                    </div>
-                    <div><span class="filter-label">Nama Guru</span><input type="text" id="filter-nama" class="filter-input" placeholder="Ketik nama..." oninput="applyFilters()"></div>
-                    
-                    <!-- TAMBAHAN BARU: Filter Kamar -->
-                    <div><span class="filter-label">Kamar</span><input type="text" id="filter-kamar" class="filter-input" placeholder="Ketik kamar..." oninput="applyFilters()"></div>
-                    <!-- ========================== -->
+    
+    <!-- TANGGAL (Tarik data dari Firebase) -->
+    <div><span class="filter-label">Tanggal</span><input type="date" id="filter-tanggal" class="filter-input" onchange="onTanggalChange()"></div>
+    
+    <!-- FILTER LOKAL (Pencarian instan di browser) -->
+    <div><span class="filter-label">Jam</span><input type="text" id="filter-jam" class="filter-input" placeholder="Cth: 20:..." oninput="applyLocalFilters()"></div>
+    
+    <div><span class="filter-label">Kegiatan</span><input type="text" id="filter-kegiatan" class="filter-input" placeholder="Ketik kegiatan..." oninput="applyLocalFilters()"></div>
+    
+    <div>
+        <span class="filter-label">Tahap</span>
+        <select id="filter-tahap" class="filter-input" onchange="applyLocalFilters()">
+            <option value="">Semua Tahap</option>
+            <option value="Sesi Tunggal">Tunggal</option>
+            <option value="Qobliyah">Qobliyah</option>
+            <option value="Bakdiyah">Bakdiyah</option>
+        </select>
+    </div>
+    
+    <div><span class="filter-label">Nama Guru</span><input type="text" id="filter-nama" class="filter-input" placeholder="Ketik nama..." oninput="applyLocalFilters()"></div>
+    
+    <!-- TAMBAHAN BARU: Filter Kamar -->
+    <div><span class="filter-label">Kamar</span><input type="text" id="filter-kamar" class="filter-input" placeholder="Ketik kamar..." oninput="applyLocalFilters()"></div>
+    <!-- ========================== -->
 
-                    <div><span class="filter-label">Zona</span><input type="text" id="filter-zona" class="filter-input" placeholder="Ketik zona..." oninput="applyFilters()"></div>
-                    <div>
-                        <span class="filter-label">Status</span>
-                        <select id="filter-status" class="filter-input" onchange="applyFilters()">
-                            <option value="">Semua Status</option>
-                            <option value="Tepat Waktu">Tepat Waktu</option>
-                            <option value="Tepat Waktu (Kuliah)">Tepat Waktu (Kuliah)</option>
-                            <option value="Terlambat">Terlambat</option>
-                            <option value="Izin">Izin</option>
-                            <option value="Sakit">Sakit</option>
-                            <option value="Tidak Hadir">Tidak Hadir</option>
-                        </select>
-                    </div>
-                    <div><span class="filter-label">Admin PJ</span><input type="text" id="filter-admin" class="filter-input" placeholder="Ketik admin..." oninput="applyFilters()"></div>
-                    <div><button class="btn-outline" onclick="resetFilters()" style="width: 100%; padding: 8px; font-size: 0.85rem; border-color:#dc2626; color:#dc2626;">Reset</button></div>
-                </div>
+    <div><span class="filter-label">Zona</span><input type="text" id="filter-zona" class="filter-input" placeholder="Ketik zona..." oninput="applyLocalFilters()"></div>
+    
+    <div>
+        <span class="filter-label">Status</span>
+        <select id="filter-status" class="filter-input" onchange="applyLocalFilters()">
+            <option value="">Semua Status</option>
+            <option value="Tepat Waktu">Tepat Waktu</option>
+            <option value="Tepat Waktu (Kuliah)">Tepat Waktu (Kuliah)</option>
+            <option value="Terlambat">Terlambat</option>
+            <option value="Izin">Izin</option>
+            <option value="Sakit">Sakit</option>
+            <option value="Tidak Hadir">Tidak Hadir</option>
+        </select>
+    </div>
+    
+    <div><span class="filter-label">Admin PJ</span><input type="text" id="filter-admin" class="filter-input" placeholder="Ketik admin..." oninput="applyLocalFilters()"></div>
+    
+    <div><button class="btn-outline" onclick="resetFilters()" style="width: 100%; padding: 8px; font-size: 0.85rem; border-color:#dc2626; color:#dc2626;">Reset</button></div>
+</div>
 
                 <div class="table-responsive">
                     <table id="tabel-rekap">
